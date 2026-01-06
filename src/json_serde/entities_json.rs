@@ -1,5 +1,6 @@
-use serde::{Serialize, Deserialize};
-use std::{fs, io::{self, Write}};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::os::raw::c_char;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,29 +13,44 @@ pub struct EntitiesJson {
 }
 
 impl EntitiesJson {
-    pub fn build_from_nav_json_file(nav_json_file: String) -> EntitiesJson {
-        println!("Loading scene from nav.json file: {}", nav_json_file);
-        io::stdout().flush().unwrap();
-        let nav_json_string = fs::read_to_string(nav_json_file.as_str())
-            .expect("Error reading nav.json file");
-        return EntitiesJson::build_from_nav_json_string(nav_json_string);
+    pub fn build_from_nav_json_file(
+        nav_json_file: String,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> Option<EntitiesJson> {
+        let msg = std::ffi::CString::new(format!(
+            "Loading scene from nav.json file: {}",
+            nav_json_file
+        ))
+        .unwrap();
+        log_callback(msg.as_ptr());
+
+        let nav_json_string = match fs::read_to_string(nav_json_file.as_str()) {
+            Ok(c) => c,
+            Err(e) => {
+                let msg =
+                    std::ffi::CString::new(format!("Error reading nav.json file: {}", e)).unwrap();
+                log_callback(msg.as_ptr());
+                return None;
+            }
+        };
+        match EntitiesJson::build_from_nav_json_string(nav_json_string, log_callback) {
+            Some(json) => Some(json),
+            None => None,
+        }
     }
 
-    pub fn build_from_nav_json_string(nav_json_string: String) -> EntitiesJson {
-        return serde_json::from_str(&nav_json_string).expect("JSON was not well-formatted");
-    }
-
-    pub fn output_entities(&mut self) {
-        for entity in &self.meshes {
-            println!("Entity Instance:");
-            println!(" Aloc Hash:     {}", entity.aloc_hash);
-            println!(" Prim Hash:     {}", entity.prim_hash);
-            println!(" ID:       {}", entity.entity.id);
-            println!(" Name:     {}", entity.entity.name.clone().unwrap_or(String::from("")));
-            println!(" Position: {:?}", entity.entity.position);
-            println!(" Rotation: {:?}", entity.entity.rotation);
-            println!(" Scale:    {:?}", entity.entity.scale);
-            io::stdout().flush().unwrap();
+    pub fn build_from_nav_json_string(
+        nav_json_string: String,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> Option<EntitiesJson> {
+        match serde_json::from_str(&nav_json_string) {
+            Ok(json) => Some(json),
+            Err(e) => {
+                let msg =
+                    std::ffi::CString::new(format!("Error parsing nav.json file: {}", e)).unwrap();
+                log_callback(msg.as_ptr());
+                None
+            }
         }
     }
 }
