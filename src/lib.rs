@@ -4,7 +4,7 @@ pub mod extract;
 pub mod json_serde;
 pub mod package;
 
-use crate::extract::aloc_or_prim_extraction::AlocOrPrimExtraction;
+use crate::extract::rpkg_extraction::RpkgExtraction;
 use crate::json_serde::entities_json::EntitiesJson;
 use crate::package::package_scan::PackageScan;
 use std::collections::HashSet;
@@ -66,7 +66,7 @@ pub fn run_extraction(
             return -1;
         }
     };
-    let needed_aloc_or_prim_hashes = AlocOrPrimExtraction::get_all_aloc_or_prim_hashes(
+    let needed_aloc_or_prim_hashes = RpkgExtraction::get_all_aloc_or_prim_hashes_from_scene(
         &nav_json,
         args[5].clone(),
         args[6].clone(),
@@ -111,7 +111,7 @@ pub fn run_extraction(
                     return -1;
                 }
             };
-        result = AlocOrPrimExtraction::extract_alocs_or_prims(
+        result = RpkgExtraction::extract_resources_from_rpkg(
             args[4].clone(),
             needed_aloc_or_prim_hashes,
             &partition_manager,
@@ -161,7 +161,7 @@ pub extern "C" fn get_all_aloc_or_prim_hashes(
     let output_folder_str = unsafe { CStr::from_ptr(output_folder).to_string_lossy().into_owned() };
     let output_type_str = unsafe { CStr::from_ptr(output_type).to_string_lossy().into_owned() };
 
-    let hashes = AlocOrPrimExtraction::get_all_aloc_or_prim_hashes(
+    let hashes = RpkgExtraction::get_all_aloc_or_prim_hashes_from_scene(
         entities_json_ref,
         output_folder_str,
         output_type_str,
@@ -209,12 +209,12 @@ pub extern "C" fn free_partition_manager(
 }
 
 #[no_mangle]
-pub extern "C" fn extract_alocs_or_prims(
+pub extern "C" fn extract_resources_from_rpkg(
     runtime_folder: *const c_char,
     needed_hashes: *mut HashSet<String>,
     partition_manager: *const rpkg_rs::resource::partition_manager::PartitionManager,
     output_folder: *const c_char,
-    output_type: *const c_char,
+    resource_type: *const c_char,
     log_callback: extern "C" fn(*const c_char),
 ) {
     let runtime_folder_str = unsafe {
@@ -230,14 +230,14 @@ pub extern "C" fn extract_alocs_or_prims(
 
     let partition_manager_ref = unsafe { &*partition_manager };
     let output_folder_str = unsafe { CStr::from_ptr(output_folder).to_string_lossy().into_owned() };
-    let output_type_str = unsafe { CStr::from_ptr(output_type).to_string_lossy().into_owned() };
+    let resource_type_str = unsafe { CStr::from_ptr(resource_type).to_string_lossy().into_owned() };
 
-    AlocOrPrimExtraction::extract_alocs_or_prims(
+    RpkgExtraction::extract_resources_from_rpkg(
         runtime_folder_str,
         needed_hashes_clone,
         partition_manager_ref,
         output_folder_str,
-        output_type_str,
+        resource_type_str,
         log_callback,
     );
 }

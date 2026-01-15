@@ -12,54 +12,54 @@ use std::{
 
 use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::PackageScan};
 
-pub struct AlocOrPrimExtraction;
+pub struct RpkgExtraction;
 
-impl AlocOrPrimExtraction {
-    pub fn extract_alocs_or_prims(
+impl RpkgExtraction {
+    pub fn extract_resources_from_rpkg(
         runtime_folder: String,
-        needed_aloc_or_prim_hashes: HashSet<String>,
+        needed_hashes: HashSet<String>,
         partition_manager: &PartitionManager,
-        alocs_or_prims_output_folder: String,
-        aloc_or_prim_type: String,
+        output_folder: String,
+        resource_type: String,
         log_callback: extern "C" fn(*const c_char),
     ) -> std::ffi::c_int {
-        let aloc_or_prim_count = needed_aloc_or_prim_hashes.len();
-        let needed_aloc_or_prim_hashes_list = Vec::from_iter(needed_aloc_or_prim_hashes);
+        let resource_count = needed_hashes.len();
+        let needed_hashes_list = Vec::from_iter(needed_hashes);
         let target_num_threads = 10;
-        let alocs_or_prims_output_folder_ref = &alocs_or_prims_output_folder;
+        let output_folder_ref = &output_folder;
         let runtime_folder_ref = &runtime_folder;
-        let aloc_or_prim_type_ref = &aloc_or_prim_type;
+        let resource_type_ref = &resource_type;
         let msg = std::ffi::CString::new(format!(
             "Creating directory '{}' if it doesn't exist.",
-            alocs_or_prims_output_folder
+            output_folder
         ))
         .unwrap();
         log_callback(msg.as_ptr());
-        if let Err(e) = fs::create_dir_all(alocs_or_prims_output_folder_ref) {
+        if let Err(e) = fs::create_dir_all(output_folder_ref) {
             let msg =
-                std::ffi::CString::new(format!("Failed to create aloc or prim folder: {}", e))
+                std::ffi::CString::new(format!("Failed to create resource folder: {}", e))
                     .unwrap();
             log_callback(msg.as_ptr());
             return -1;
         }
         let msg = std::ffi::CString::new(format!(
-            "Found {} needed alocs or prims. Using {} threads of ~{} alocs or prims per thread.",
-            aloc_or_prim_count,
+            "Found {} needed resources. Using {} threads of ~{} resources per thread.",
+            resource_count,
             target_num_threads,
-            aloc_or_prim_count / target_num_threads
+            resource_count / target_num_threads
         ))
         .unwrap();
         log_callback(msg.as_ptr());
 
         let success = thread::scope(|scope| {
             let mut handles = Vec::new();
-            for (thread_num, chunk) in needed_aloc_or_prim_hashes_list
-                .chunks(aloc_or_prim_count.div_ceil(target_num_threads))
+            for (thread_num, chunk) in needed_hashes_list
+                .chunks(resource_count.div_ceil(target_num_threads))
                 .enumerate()
             {
                 handles.push(scope.spawn(move || {
-                    let alocs_or_prims_output_folder_path =
-                        PathBuf::from(String::from(alocs_or_prims_output_folder_ref));
+                    let output_folder_path =
+                        PathBuf::from(String::from(output_folder_ref));
                     let mut resource_packages: HashMap<String, ResourcePackage> = HashMap::new();
 
                     let mut i = 0;
@@ -112,7 +112,7 @@ impl AlocOrPrimExtraction {
                                 }
                             }
                         };
-                        let aloc_or_prim_contents = match rpkg.read_resource(&package_path, &rrid) {
+                        let resource_contents = match rpkg.read_resource(&package_path, &rrid) {
                             Ok(c) => c,
                             Err(e) => {
                                 let msg = std::ffi::CString::new(format!(
@@ -126,15 +126,19 @@ impl AlocOrPrimExtraction {
                         };
 
                         let file_extension: String;
-                        if aloc_or_prim_type_ref == "ALOC" {
+                        if resource_type_ref == "ALOC" {
                             file_extension = ".ALOC".to_string();
-                        } else {
+                        } else if resource_type_ref == "PRIM" {
                             file_extension = ".PRIM".to_string();
+                        } else if resource_type_ref == "NAVP" {
+                            file_extension = ".NAVP".to_string();
+                        } else {
+                            file_extension = ".AIRG".to_string();
                         }
-                        let aloc_or_prim_file_path_buf =
-                            alocs_or_prims_output_folder_path.join(hash.clone() + &file_extension);
-                        let aloc_or_prim_file_path =
-                            aloc_or_prim_file_path_buf.as_os_str().to_str().unwrap();
+                        let resource_file_path_buf =
+                            output_folder_path.join(hash.clone() + &file_extension);
+                        let resource_file_path =
+                            resource_file_path_buf.as_os_str().to_str().unwrap();
                         let msg = std::ffi::CString::new(format!(
                             "Thread: {}: {} / {} Extracting {} from {} and saving to '{}'",
                             thread_num,
@@ -142,12 +146,12 @@ impl AlocOrPrimExtraction {
                             chunk.len(),
                             hash,
                             last_partition,
-                            aloc_or_prim_file_path
+                            resource_file_path
                         ))
                         .unwrap();
                         log_callback(msg.as_ptr());
 
-                        if let Err(e) = fs::write(aloc_or_prim_file_path, aloc_or_prim_contents) {
+                        if let Err(e) = fs::write(resource_file_path, resource_contents) {
                             let msg =
                                 std::ffi::CString::new(format!("File failed to be written: {}", e))
                                     .unwrap();
@@ -179,8 +183,8 @@ impl AlocOrPrimExtraction {
         }
     }
 
-    pub fn get_all_aloc_or_prim_hashes(
-        nav_json: &EntitiesJson,
+    pub fn get_all_aloc_or_prim_hashes_from_scene(
+        scene_nav_json: &EntitiesJson,
         alocs_or_prims_output_folder: String,
         aloc_or_prim_type: String,
         log_callback: extern "C" fn(*const c_char),
@@ -194,7 +198,7 @@ impl AlocOrPrimExtraction {
         } else {
             file_extension = ".PRIM".to_string();
         }
-        for entity in &nav_json.meshes {
+        for entity in &scene_nav_json.meshes {
             if aloc_or_prim_type == "ALOC" {
                 aloc_or_prim_hashes.insert(entity.aloc_hash.clone());
             } else {
