@@ -3,6 +3,8 @@ use rpkg_rs::resource::{
     runtime_resource_id::RuntimeResourceID,
 };
 use std::os::raw::c_char;
+use std::ffi::CStr;
+use std::slice;
 use std::thread::{self};
 use std::{
     collections::{HashMap, HashSet},
@@ -15,16 +17,27 @@ use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::Pack
 pub struct RpkgExtraction;
 
 impl RpkgExtraction {
-    pub fn extract_resources_from_rpkg(
+    pub unsafe fn extract_resources_from_rpkg(
         runtime_folder: String,
-        needed_hashes: HashSet<String>,
+        needed_hashes: *const *const c_char,
+        needed_hashes_len: usize,
         partition_manager: &PartitionManager,
         output_folder: String,
         resource_type: String,
         log_callback: extern "C" fn(*const c_char),
     ) -> std::ffi::c_int {
-        let resource_count = needed_hashes.len();
-        let needed_hashes_list = Vec::from_iter(needed_hashes);
+        let mut needed_hashes_list = Vec::new();
+        if !needed_hashes.is_null() {
+            let slice = slice::from_raw_parts(needed_hashes, needed_hashes_len);
+            for &ptr in slice {
+                if !ptr.is_null() {
+                    if let Ok(s) = CStr::from_ptr(ptr).to_str() {
+                        needed_hashes_list.push(s.to_string());
+                    }
+                }
+            }
+        }
+        let resource_count = needed_hashes_list.len();
         let target_num_threads = 10;
         let output_folder_ref = &output_folder;
         let runtime_folder_ref = &runtime_folder;

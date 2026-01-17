@@ -111,14 +111,24 @@ pub fn run_extraction(
                     return -1;
                 }
             };
-        result = RpkgExtraction::extract_resources_from_rpkg(
-            args[4].clone(),
-            needed_aloc_or_prim_hashes,
-            &partition_manager,
-            args[5].clone(),
-            args[6].clone(),
-            log_callback,
-        );
+
+        let c_strings: Vec<std::ffi::CString> = needed_aloc_or_prim_hashes
+            .iter()
+            .map(|s| std::ffi::CString::new(s.as_str()).unwrap())
+            .collect();
+        let c_ptrs: Vec<*const c_char> = c_strings.iter().map(|c| c.as_ptr()).collect();
+
+        unsafe {
+            result = RpkgExtraction::extract_resources_from_rpkg(
+                args[4].clone(),
+                c_ptrs.as_ptr(),
+                c_ptrs.len(),
+                &partition_manager,
+                args[5].clone(),
+                args[6].clone(),
+                log_callback,
+            );
+        }
     }
     let msg = std::ffi::CString::new("Done extracting alocs or prims.").unwrap();
     log_callback(msg.as_ptr());
@@ -211,33 +221,37 @@ pub extern "C" fn free_partition_manager(
 #[no_mangle]
 pub extern "C" fn extract_resources_from_rpkg(
     runtime_folder: *const c_char,
-    needed_hashes: *mut HashSet<String>,
+    needed_hashes: *const *const c_char,
+    needed_hashes_len: usize,
     partition_manager: *const rpkg_rs::resource::partition_manager::PartitionManager,
     output_folder: *const c_char,
     resource_type: *const c_char,
     log_callback: extern "C" fn(*const c_char),
 ) {
+    let msg = std::ffi::CString::new("Reading parameters.".to_string())
+        .unwrap();
+    log_callback(msg.as_ptr());
     let runtime_folder_str = unsafe {
         CStr::from_ptr(runtime_folder)
             .to_string_lossy()
             .into_owned()
     };
-    let needed_hashes_ref = unsafe { &*needed_hashes }; // We clone it because extract_alocs_or_prims takes ownership or we change signature
-                                                        // The original extract_alocs_or_prims takes HashSet<String> by value.
-                                                        // So we need to clone it here if we want to keep the pointer valid, or take ownership.
-                                                        // Let's clone for safety so the C++ side still owns the set until it frees it.
-    let needed_hashes_clone = needed_hashes_ref.clone();
 
     let partition_manager_ref = unsafe { &*partition_manager };
     let output_folder_str = unsafe { CStr::from_ptr(output_folder).to_string_lossy().into_owned() };
     let resource_type_str = unsafe { CStr::from_ptr(resource_type).to_string_lossy().into_owned() };
-
-    RpkgExtraction::extract_resources_from_rpkg(
-        runtime_folder_str,
-        needed_hashes_clone,
-        partition_manager_ref,
-        output_folder_str,
-        resource_type_str,
-        log_callback,
-    );
+    let msg = std::ffi::CString::new("Extracting Resources from rpkg".to_string())
+        .unwrap();
+    log_callback(msg.as_ptr());
+    unsafe {
+        RpkgExtraction::extract_resources_from_rpkg(
+            runtime_folder_str,
+            needed_hashes,
+            needed_hashes_len,
+            partition_manager_ref,
+            output_folder_str,
+            resource_type_str,
+            log_callback,
+        );
+    }
 }
