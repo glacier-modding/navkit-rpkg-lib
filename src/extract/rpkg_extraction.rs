@@ -210,12 +210,6 @@ impl RpkgExtraction {
         let mut aloc_or_prim_hashes: HashSet<String> = HashSet::new();
         let mut needed_hashes: HashSet<String> = HashSet::new();
 
-        let file_extension: String;
-        if aloc_or_prim_type == "ALOC" {
-            file_extension = ".ALOC".to_string();
-        } else {
-            file_extension = ".PRIM".to_string();
-        }
         for entity in &scene_nav_json.meshes {
             if aloc_or_prim_type == "ALOC" {
                 aloc_or_prim_hashes.insert(entity.aloc_hash.clone());

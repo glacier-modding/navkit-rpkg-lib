@@ -29,8 +29,8 @@ jobs:
             cbindgen --config cbindgen.toml --crate navkit-rpkg-lib --output navkit-rpkg-lib.h
             cargo build --release
             New-Item -ItemType Directory -Force -Path build/x64-release
-            Copy-Item target/release/navkit-rpkg-lib.dll build/x64-release/
-            Copy-Item target/release/navkit-rpkg-lib.dll.lib build/x64-release/
+            Copy-Item target/release/navkit_rpkg_lib.dll build/x64-release/
+            Copy-Item target/release/navkit_rpkg_lib.dll.lib build/x64-release/
             Copy-Item navkit-rpkg-lib.h build/x64-release/
           } else {
             cargo build
