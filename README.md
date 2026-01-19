@@ -4,12 +4,14 @@
 
 ![Maintenance](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
-`navkit-rpkg-lib` provides functionality to search for mesh collision (ALOC) files with a Glacier scene from the Hitman games.
+`navkit-rpkg-lib` provides functionality to support [https://github.com/glacier-modding/NavKit](NavKit)'s interactions with RPKG files from Hitman: World of Assassination using [`rpkg-rs`](https://github.com/dafitius/rpkg-rs).
 
 ## Features
 
-- Communicate with the Editor SDK mod for Hitman 3 for a loaded mission to get collision (ALOC) hashes and transforms, and Pathfinder box transforms and save them to files
-- Extract the ALOC files using [`rpkg-rs`](https://github.com/dafitius/rpkg-rs) 
+- Parse a NavKit scene file and extract mesh files from the RPKG files for a Hitman scene
+- Extract specific resources by their hash from the RPKG files
+- Get all hashes of a given type from the RPKG files
 
 ## Contributions
 Bug reports, PRs and feature requests are welcome.
+
