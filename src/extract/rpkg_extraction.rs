@@ -2,8 +2,8 @@ use rpkg_rs::resource::{
     partition_manager::PartitionManager, resource_package::ResourcePackage,
     runtime_resource_id::RuntimeResourceID,
 };
-use std::os::raw::c_char;
 use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::slice;
 use std::thread::{self};
 use std::{
@@ -50,23 +50,22 @@ impl RpkgExtraction {
         log_callback(msg.as_ptr());
         if let Err(e) = fs::create_dir_all(output_folder_ref) {
             let msg =
-                std::ffi::CString::new(format!("Failed to create resource folder: {}", e))
-                    .unwrap();
+                std::ffi::CString::new(format!("Failed to create resource folder: {}", e)).unwrap();
             log_callback(msg.as_ptr());
             return -1;
         }
         let msg = std::ffi::CString::new(format!(
-            "Found {} needed resources. Using {} threads of ~{} resources per thread.",
-            resource_count,
+            "Extracting using {} threads of around {} resources per thread...",
             target_num_threads,
             resource_count / target_num_threads
         ))
         .unwrap();
         log_callback(msg.as_ptr());
-
+        let alocs_or_prims_output_folder_path = PathBuf::from(&output_folder);
+        let alocs_or_prims_output_folder_path_ref = &alocs_or_prims_output_folder_path;
         let success = thread::scope(|scope| {
             let mut handles = Vec::new();
-            for (thread_num, chunk) in needed_hashes_list
+            for (chunk_i, chunk) in needed_hashes_list
                 .chunks(resource_count.div_ceil(target_num_threads))
                 .enumerate()
             {
@@ -75,9 +74,9 @@ impl RpkgExtraction {
                         PathBuf::from(String::from(output_folder_ref));
                     let mut resource_packages: HashMap<String, ResourcePackage> = HashMap::new();
 
-                    let mut i = 0;
+                    let mut skipped = 0;
+                    let mut extracted = 0;
                     for hash in chunk {
-                        i += 1;
                         let runtime_folder_path = PathBuf::from(runtime_folder_ref);
 
                         let rrid: RuntimeResourceID =
@@ -107,11 +106,23 @@ impl RpkgExtraction {
                                 }
                         };
                         let last_partition = resource_info.last_partition;
-                        let package_path = runtime_folder_path.join(last_partition.clone());
+                        let package_path_buf = runtime_folder_path.join(last_partition.clone());
+                        let package_path = Path::new(&package_path_buf);
+                        let aloc_or_prim_file_path_buf =
+                            alocs_or_prims_output_folder_path_ref.join(hash.clone() + "." + &resource_type_ref);
+                        let aloc_or_prim_file_path_buf = aloc_or_prim_file_path_buf.as_os_str().to_str().unwrap();
+                        let aloc_or_prim_file_path = Path::new(aloc_or_prim_file_path_buf);
+                        if aloc_or_prim_file_path.exists() {
+                            let aloc_or_prim_file_path_metadata = aloc_or_prim_file_path.metadata();
+                            if aloc_or_prim_file_path_metadata.unwrap().modified().unwrap() >= package_path.metadata().unwrap().modified().unwrap() {
+                                skipped += 1;
+                                continue
+                            }
+                        }
                         let rpkg = match resource_packages.entry(last_partition.clone()) {
                             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                             std::collections::hash_map::Entry::Vacant(entry) => {
-                                match ResourcePackage::from_file(&package_path) {
+                                match ResourcePackage::from_file(&package_path_buf) {
                                     Ok(pkg) => entry.insert(pkg),
                                     Err(e) => {
                                         let msg = std::ffi::CString::new(format!(
@@ -125,7 +136,7 @@ impl RpkgExtraction {
                                 }
                             }
                         };
-                        let resource_contents = match rpkg.read_resource(&package_path, &rrid) {
+                        let resource_contents = match rpkg.read_resource(&package_path_buf, &rrid) {
                             Ok(c) => c,
                             Err(e) => {
                                 let msg = std::ffi::CString::new(format!(
@@ -152,17 +163,7 @@ impl RpkgExtraction {
                             output_folder_path.join(hash.clone() + &file_extension);
                         let resource_file_path =
                             resource_file_path_buf.as_os_str().to_str().unwrap();
-                        let msg = std::ffi::CString::new(format!(
-                            "Thread: {}: {} / {} Extracting {} from {} and saving to '{}'",
-                            thread_num,
-                            i,
-                            chunk.len(),
-                            hash,
-                            last_partition,
-                            resource_file_path
-                        ))
-                        .unwrap();
-                        log_callback(msg.as_ptr());
+                        extracted += 1;
 
                         if let Err(e) = fs::write(resource_file_path, resource_contents) {
                             let msg =
@@ -172,6 +173,12 @@ impl RpkgExtraction {
                             return Err(());
                         }
                     }
+                    let msg = std::ffi::CString::new(format!(
+                        "Thread {}: Extracted {} resources. Skipped extraction of {} resources that are newer than their rpkg file.",
+                        chunk_i, extracted, skipped)
+                    ).unwrap();
+                    log_callback(msg.as_ptr());
+
                     Ok(())
                 }));
             }
@@ -196,11 +203,9 @@ impl RpkgExtraction {
         }
     }
 
-    pub fn get_all_aloc_or_prim_hashes_from_scene(
+    pub fn get_needed_aloc_or_prim_hashes_from_scene(
         scene_nav_json: &EntitiesJson,
-        alocs_or_prims_output_folder: String,
         aloc_or_prim_type: String,
-        log_callback: extern "C" fn(*const c_char),
     ) -> HashSet<String> {
         let mut aloc_or_prim_hashes: HashSet<String> = HashSet::new();
         let mut needed_hashes: HashSet<String> = HashSet::new();
@@ -218,23 +223,46 @@ impl RpkgExtraction {
                 aloc_or_prim_hashes.insert(entity.prim_hash.clone());
             }
         }
-        let alocs_or_prims_output_folder_path = PathBuf::from(&alocs_or_prims_output_folder);
         for hash in aloc_or_prim_hashes {
-            let aloc_or_prim_file_path_buf =
-                alocs_or_prims_output_folder_path.join(hash.clone() + &file_extension);
-            let aloc_or_prim_file_path = aloc_or_prim_file_path_buf.as_os_str().to_str().unwrap();
-            if Path::new(aloc_or_prim_file_path).exists() {
-                let msg = std::ffi::CString::new(format!(
-                    "{} already exists, skipping extraction.",
-                    aloc_or_prim_file_path
-                ))
-                .unwrap();
-                log_callback(msg.as_ptr());
-
-                continue;
-            }
             needed_hashes.insert(hash);
         }
         needed_hashes
+    }
+
+    pub fn get_all_resources_hashes_by_type_from_rpkg_files(
+        partition_manager: &PartitionManager,
+        resource_type: String,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> Vec<String> {
+        let navps: Vec<_> = partition_manager
+            .partitions()
+            .iter()
+            .flat_map(|partition| {
+                partition
+                    .latest_resources()
+                    .into_iter()
+                    .filter_map(|(resource, _)| {
+                        (resource.data_type() == resource_type).then_some(resource)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut resource_hashes: HashSet<String> = HashSet::new();
+        navps.iter().for_each(|resource| {
+            let rid = resource.rrid();
+            resource_hashes.insert(rid.to_hex_string());
+        });
+
+        let msg = std::ffi::CString::new(
+            format!(
+                "Found {} {} Resources in Rpkg files.",
+                resource_hashes.len(),
+                resource_type
+            )
+            .to_string(),
+        )
+        .unwrap();
+        log_callback(msg.as_ptr());
+        resource_hashes.into_iter().collect()
     }
 }

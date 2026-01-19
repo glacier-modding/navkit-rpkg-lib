@@ -26,12 +26,12 @@ jobs:
         run: |
           if ("${{ matrix.config }}" -eq "release") {
             cargo install cbindgen
-            cbindgen --config cbindgen.toml --crate glacier2obj --output glacier2obj.h
+            cbindgen --config cbindgen.toml --crate navkit-rpkg-lib --output navkit-rpkg-lib.h
             cargo build --release
             New-Item -ItemType Directory -Force -Path build/x64-release
-            Copy-Item target/release/glacier2obj.dll build/x64-release/
-            Copy-Item target/release/glacier2obj.dll.lib build/x64-release/
-            Copy-Item glacier2obj.h build/x64-release/
+            Copy-Item target/release/navkit-rpkg-lib.dll build/x64-release/
+            Copy-Item target/release/navkit-rpkg-lib.dll.lib build/x64-release/
+            Copy-Item navkit-rpkg-lib.h build/x64-release/
           } else {
             cargo build
           }

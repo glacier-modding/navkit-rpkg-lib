@@ -22,5 +22,5 @@ fn main() {
         .with_config(config)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(target_dir.join("glacier2obj.h"));
+        .write_to_file(target_dir.join("navkit-rpkg-lib.h"));
 }

@@ -242,19 +242,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glacier2obj"
-version = "0.3.0"
-dependencies = [
- "cbindgen",
- "itertools",
- "rayon",
- "rpkg-rs",
- "serde",
- "serde-hex",
- "serde_json",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -411,6 +398,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "navkit-rpkg-lib"
+version = "0.3.0"
+dependencies = [
+ "cbindgen",
+ "itertools",
+ "rayon",
+ "rpkg-rs",
+ "serde",
+ "serde-hex",
+ "serde_json",
 ]
 
 [[package]]
