@@ -4,7 +4,7 @@
 
 ![Maintenance](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
-`navkit-rpkg-lib` provides functionality to support [https://github.com/glacier-modding/NavKit](NavKit)'s interactions with RPKG files from Hitman: World of Assassination using [`rpkg-rs`](https://github.com/dafitius/rpkg-rs).
+`navkit-rpkg-lib` provides functionality to support [NavKit](https://github.com/glacier-modding/NavKit)'s interactions with RPKG files from Hitman: World of Assassination using [`rpkg-rs`](https://github.com/dafitius/rpkg-rs).
 
 ## Features
 
@@ -14,4 +14,5 @@
 
 ## Contributions
 Bug reports, PRs and feature requests are welcome.
+
 
