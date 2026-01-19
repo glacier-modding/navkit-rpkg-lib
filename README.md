@@ -1,10 +1,10 @@
 <div align="center">
-  <h1><code>glacier2obj</code></h1>
+  <h1><code>navkit-rpkg-lib</code></h1>
 </div>
 
 ![Maintenance](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
-`glacier2obj` provides functionality to search for mesh collision (ALOC) files with a Glacier scene from the Hitman games.
+`navkit-rpkg-lib` provides functionality to search for mesh collision (ALOC) files with a Glacier scene from the Hitman games.
 
 ## Features
 

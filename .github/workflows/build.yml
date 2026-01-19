@@ -1,0 +1,80 @@
+name: Rust Build and Release
+
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  validate_build:
+    name: Validate Build
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        config: [ debug, release ]
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build ${{ matrix.config }}
+        shell: pwsh
+        run: |
+          if ("${{ matrix.config }}" -eq "release") {
+            cargo install cbindgen
+            cbindgen --config cbindgen.toml --crate navkit-rpkg-lib --output navkit-rpkg-lib.h
+            cargo build --release
+            New-Item -ItemType Directory -Force -Path build/x64-release
+            Copy-Item target/release/navkit_rpkg_lib.dll build/x64-release/
+            Copy-Item target/release/navkit_rpkg_lib.dll.lib build/x64-release/
+            Copy-Item navkit-rpkg-lib.h build/x64-release/
+          } else {
+            cargo build
+          }
+
+      - name: Upload Release Build Artifact
+        if: matrix.config == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: navkit-rpkg-lib
+          path: build/x64-release/
+
+  create_release:
+    name: Create Release with Library files
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: validate_build
+
+    permissions:
+      contents: write
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download Release Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: navkit-rpkg-lib
+          path: build/x64-release/
+
+      - name: List Files
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path build/x64-release/
+
+      - name: Upload library files to GitHub Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/x64-release/*
+          file_glob: true
+          tag: ${{ github.ref }}
+          overwrite: true
