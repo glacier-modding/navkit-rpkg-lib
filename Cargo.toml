@@ -16,12 +16,26 @@ crate-type = ["cdylib", "rlib"]
 status = "actively-developed"
 
 [dependencies]
-rpkg-rs = "=1.0.0-rc.1"
-itertools = { version = "0.12.1", features = [] }
+rpkg-rs = "=1.2.0"
+itertools = { version = "0.14.0", features = [] }
+anyhow = "1.0.95"
 rayon = { version = "1.10.0", optional = true}
-serde = { version = "1.0.199", optional = true, features = ["derive"] }
-serde_json = { version = "1.0.117"}
+serde = { version = "1.0.194", optional = true, features = ["derive"] }
+serde_json = { version = "1.0.138"}
 serde-hex = { version = "0.1.0", optional = true }
+serde-smile = "0.2.2"
+
+[dependencies.hitman-commons]
+git = "https://github.com/atampy25/hitman-commons"
+features = ["serde", "specta", "rpkg-rs", "glacier-texture", "tonytools", "resourcelib", "hash_list", "game_detection"]
+
+[dependencies.hitman-formats]
+git = "https://github.com/atampy25/hitman-formats"
+features = ["material", "serde"]
+
+[dependencies.reqwest]
+version = "0.12.12"
+features = ["json", "blocking"]
 
 [features]
 default = ["path-list", "serde"]

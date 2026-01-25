@@ -167,6 +167,20 @@ pub extern "C" fn get_all_resources_hashes_by_type_from_rpkg_files(
     create_string_list(resources)
 }
 
+#[no_mangle]
+pub extern "C" fn get_hash_list_from_file_or_repo(
+    output_folder: *const c_char,
+    log_callback: extern "C" fn(*const c_char),
+) -> *mut hitman_commons::hash_list::HashList {
+    let output_folder_str = unsafe { CStr::from_ptr(output_folder).to_string_lossy().into_owned() };
+
+    let hash_list = RpkgExtraction::get_hash_list_from_file_or_repo(output_folder_str, log_callback);
+    match hash_list {
+        Ok(hash_list) => Box::into_raw(Box::new(hash_list)),
+        Err => std::ptr::null_mut(),
+    }
+}
+
 #[repr(C)]
 pub struct RustStringList {
     entries: *mut *mut c_char,

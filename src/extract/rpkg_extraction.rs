@@ -1,7 +1,14 @@
+use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::PackageScan};
+use anyhow::{bail, Context};
+use hitman_commons::hash_list::HashList;
+use hitman_commons::metadata::ExtendedResourceMetadata;
+use hitman_formats::material::MaterialInstance;
+use itertools::Itertools;
 use rpkg_rs::resource::{
     partition_manager::PartitionManager, resource_package::ResourcePackage,
     runtime_resource_id::RuntimeResourceID,
 };
+use serde::Serialize;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::slice;
@@ -12,11 +19,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::PackageScan};
-
 pub struct RpkgExtraction;
 
 impl RpkgExtraction {
+    pub const HASH_LIST_VERSION_ENDPOINT: &str =
+        "https://github.com/glacier-modding/Hitman-Hashes/releases/latest/download/version";
+
+    pub const HASH_LIST_ENDPOINT: &str =
+        "https://github.com/glacier-modding/Hitman-Hashes/releases/latest/download/hash_list.sml";
+
     pub unsafe fn extract_resources_from_rpkg(
         runtime_folder: String,
         needed_hashes: *const *const c_char,
@@ -136,7 +147,7 @@ impl RpkgExtraction {
                                 }
                             }
                         };
-                        let resource_contents = match rpkg.read_resource(&package_path_buf, &rrid) {
+                        let resource_contents = match rpkg.read_resource(&rrid) {
                             Ok(c) => c,
                             Err(e) => {
                                 let msg = std::ffi::CString::new(format!(
@@ -223,13 +234,141 @@ impl RpkgExtraction {
         needed_hashes
     }
 
+    pub fn get_hash_list_from_file_or_repo(output_folder: String,
+                                           log_callback: extern "C" fn(*const c_char),) -> anyhow::Result<HashList> {
+        let msg = std::ffi::CString::new("Loading hash list from file.".to_string())?;
+        log_callback(msg.as_ptr());
+        let hash_list_path = PathBuf::from(&output_folder).join("hash_list.sml");
+        let hash_list = match fs::read(hash_list_path.clone()) {
+            Ok(hash_list) => hash_list
+                .and_then(|x| serde_smile::from_slice(&x).ok())
+                .into(),
+            Err(e) => {
+                let msg = std::ffi::CString::new("No hash list file.".to_string())?;
+                log_callback(msg.as_ptr());
+                None
+            },
+        };
+        
+        if let Ok(data) =
+            reqwest::blocking::get(RpkgExtraction::HASH_LIST_VERSION_ENDPOINT)?.text()?
+        {
+            let msg = std::ffi::CString::new("Checking latest hash list version.".to_string())?;
+            log_callback(msg.as_ptr());
+            let new_version = data
+                .trim()
+                .parse::<u32>()
+                .context("Online hash list version wasn't a number")?;
+            let current_version = if hash_list != None {
+                let hash_list_ref = &hash_list;
+                hash_list_ref?.version.unwrap_or(0);
+            } else {
+                0
+            };
+            if current_version >= new_version {
+                let msg = std::ffi::CString::new("Already have latest hash list.".to_string())?;
+                log_callback(msg.as_ptr());
+                return hash_list;
+            }
+            if let Ok(data) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_ENDPOINT)?.bytes()? {
+                let msg = std::ffi::CString::new("Newer hash list version found. Downloading.".to_string())?;
+                log_callback(msg.as_ptr());
+                let hash_list = HashList::from_compressed(&data)?;
+
+                fs::write(hash_list_path, serde_smile::to_vec(&hash_list)?)?;
+                let msg = std::ffi::CString::new("Finished downloading latest hash list.".to_string())?;
+                log_callback(msg.as_ptr());
+                hash_list?
+            }
+        }
+    }
+
+    pub fn extract_latest_resource(
+        partition_manager: &PartitionManager,
+        resource_id: RuntimeResourceID,
+    ) -> anyhow::Result<(ExtendedResourceMetadata, Vec<u8>)> {
+        for partition in &partition_manager.partitions {
+            if let Some((info, _)) = partition
+                .latest_resources()
+                .into_iter()
+                .find(|(x, _)| *x.rrid() == resource_id)
+            {
+                return Ok((
+                    info.try_into()
+                        .with_context(|| format!("Couldn't extract resource {resource_id}"))?,
+                    partition
+                        .read_resource(&resource_id)
+                        .with_context(|| format!("Couldn't extract {resource_id} using rpkg-rs"))?,
+                ));
+            }
+        }
+
+        bail!("Couldn't find {resource_id} in any partition when extracting resource");
+    }
+
+    pub fn get_mati_json_by_hash(
+        resource_hash: String,
+        hash_list: &HashList,
+        partition_manager: &PartitionManager,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> anyhow::Result<String> {
+        let msg = std::ffi::CString::new(
+            format!("Getting references for {} in Rpkg files.", resource_hash).to_string(),
+        )?;
+        log_callback(msg.as_ptr());
+        let (res_meta, res_data) = RpkgExtraction::extract_latest_resource(
+            partition_manager,
+            RuntimeResourceID::from_raw_string(&*resource_hash),
+        )?;
+
+        let material = MaterialInstance::parse(
+            &res_data,
+            &res_meta.core_info.with_hash_list(&hash_list.entries),
+        )
+        .context("Couldn't parse material instance")?;
+
+        let mut buf = Vec::new();
+        let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");
+        let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
+
+        material.serialize(&mut ser)?;
+
+        Ok(String::from_utf8(buf)?)
+    }
+
+    pub fn get_all_referenced_hashes_by_type_from_rpkg_files(
+        partition_manager: &PartitionManager,
+        resource_hash: String,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> anyhow::Result<&Vec<(String)>> {
+        let msg = std::ffi::CString::new(
+            format!("Getting references for {} in Rpkg files.", resource_hash).to_string(),
+        )?;
+        log_callback(msg.as_ptr());
+        let rrid = RuntimeResourceID::from_raw_string(&*resource_hash);
+        for partition in &partition_manager.partitions {
+            if let Some((info, _)) = partition
+                .latest_resources()
+                .into_iter()
+                .find(|(x, _)| *x.rrid() == rrid)
+            {
+                return Ok(info
+                    .references()
+                    .iter()
+                    .map(|(rrid, _)| rrid.to_hex_string())
+                    .collect());
+            }
+        }
+        bail!("Couldn't find {rrid} in any partition when extracting referenced resource");
+    }
+
     pub fn get_all_resources_hashes_by_type_from_rpkg_files(
         partition_manager: &PartitionManager,
         resource_type: String,
         log_callback: extern "C" fn(*const c_char),
     ) -> Vec<String> {
-        let navps: Vec<_> = partition_manager
-            .partitions()
+        let resources: Vec<_> = partition_manager
+            .partitions
             .iter()
             .flat_map(|partition| {
                 partition
@@ -242,7 +381,7 @@ impl RpkgExtraction {
             })
             .collect();
         let mut resource_hashes: HashSet<String> = HashSet::new();
-        navps.iter().for_each(|resource| {
+        resources.iter().for_each(|resource| {
             let rid = resource.rrid();
             resource_hashes.insert(rid.to_hex_string());
         });
