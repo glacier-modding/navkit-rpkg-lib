@@ -283,9 +283,10 @@ impl RpkgExtraction {
         }
     }
 
+    // From GlacierKit
     pub fn extract_latest_resource(
-        partition_manager: &PartitionManager,
         resource_id: RuntimeResourceID,
+        partition_manager: &PartitionManager,
     ) -> anyhow::Result<(ExtendedResourceMetadata, Vec<u8>)> {
         for partition in &partition_manager.partitions {
             if let Some((info, _)) = partition
@@ -317,8 +318,8 @@ impl RpkgExtraction {
         )?;
         log_callback(msg.as_ptr());
         let (res_meta, res_data) = RpkgExtraction::extract_latest_resource(
-            partition_manager,
             RuntimeResourceID::from_raw_string(&*resource_hash),
+            partition_manager,
         )?;
 
         let material = MaterialInstance::parse(
@@ -336,9 +337,9 @@ impl RpkgExtraction {
         Ok(String::from_utf8(buf)?)
     }
 
-    pub fn get_all_referenced_hashes_by_type_from_rpkg_files(
-        partition_manager: &PartitionManager,
+    pub fn get_all_referenced_hashes_by_hash_from_rpkg_files(
         resource_hash: String,
+        partition_manager: &PartitionManager,
         log_callback: extern "C" fn(*const c_char),
     ) -> anyhow::Result<&Vec<(String)>> {
         let msg = std::ffi::CString::new(
