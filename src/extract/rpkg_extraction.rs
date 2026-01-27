@@ -3,7 +3,6 @@ use anyhow::{bail, Context};
 use hitman_commons::hash_list::HashList;
 use hitman_commons::metadata::ExtendedResourceMetadata;
 use hitman_formats::material::MaterialInstance;
-use itertools::Itertools;
 use rpkg_rs::resource::{
     partition_manager::PartitionManager, resource_package::ResourcePackage,
     runtime_resource_id::RuntimeResourceID,
@@ -240,47 +239,47 @@ impl RpkgExtraction {
         log_callback(msg.as_ptr());
         let hash_list_path = PathBuf::from(&output_folder).join("hash_list.sml");
         let hash_list = match fs::read(hash_list_path.clone()) {
-            Ok(hash_list) => hash_list
-                .and_then(|x| serde_smile::from_slice(&x).ok())
-                .into(),
-            Err(e) => {
+            Ok(bytes) => serde_smile::from_slice(&bytes).ok(),
+            Err(_e) => {
                 let msg = std::ffi::CString::new("No hash list file.".to_string())?;
                 log_callback(msg.as_ptr());
                 None
             },
         };
         
-        if let Ok(data) =
-            reqwest::blocking::get(RpkgExtraction::HASH_LIST_VERSION_ENDPOINT)?.text()?
-        {
-            let msg = std::ffi::CString::new("Checking latest hash list version.".to_string())?;
-            log_callback(msg.as_ptr());
-            let new_version = data
-                .trim()
-                .parse::<u32>()
-                .context("Online hash list version wasn't a number")?;
-            let current_version = if hash_list != None {
-                let hash_list_ref = &hash_list;
-                hash_list_ref?.version.unwrap_or(0);
-            } else {
-                0
-            };
-            if current_version >= new_version {
-                let msg = std::ffi::CString::new("Already have latest hash list.".to_string())?;
+        if let Ok(response) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_VERSION_ENDPOINT) {
+            if let Ok(data) = response.text() {
+                let msg = std::ffi::CString::new("Checking latest hash list version.".to_string())?;
                 log_callback(msg.as_ptr());
-                return hash_list;
-            }
-            if let Ok(data) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_ENDPOINT)?.bytes()? {
-                let msg = std::ffi::CString::new("Newer hash list version found. Downloading.".to_string())?;
-                log_callback(msg.as_ptr());
-                let hash_list = HashList::from_compressed(&data)?;
+                let new_version = data
+                    .trim()
+                    .parse::<u32>()
+                    .context("Online hash list version wasn't a number")?;
+                
+                let current_version = hash_list.as_ref().and_then(|h: &HashList| Option::from(h.version)).unwrap_or(0);
 
-                fs::write(hash_list_path, serde_smile::to_vec(&hash_list)?)?;
-                let msg = std::ffi::CString::new("Finished downloading latest hash list.".to_string())?;
-                log_callback(msg.as_ptr());
-                hash_list?
+                if current_version >= new_version {
+                    let msg = std::ffi::CString::new("Already have latest hash list.".to_string())?;
+                    log_callback(msg.as_ptr());
+                    return hash_list.ok_or_else(|| anyhow::anyhow!("Local hash list missing."));
+                }
+                
+                if let Ok(response) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_ENDPOINT) {
+                    if let Ok(data) = response.bytes() {
+                        let msg = std::ffi::CString::new("Newer hash list version found. Downloading.".to_string())?;
+                        log_callback(msg.as_ptr());
+                        let new_hash_list = HashList::from_compressed(&data)?;
+
+                        fs::write(hash_list_path, serde_smile::to_vec(&new_hash_list)?)?;
+                        let msg = std::ffi::CString::new("Finished downloading latest hash list.".to_string())?;
+                        log_callback(msg.as_ptr());
+                        return Ok(new_hash_list);
+                    }
+                }
             }
         }
+        
+        hash_list.ok_or_else(|| anyhow::anyhow!("Failed to retrieve hash list."))
     }
 
     // From GlacierKit
@@ -314,7 +313,7 @@ impl RpkgExtraction {
         log_callback: extern "C" fn(*const c_char),
     ) -> anyhow::Result<String> {
         let msg = std::ffi::CString::new(
-            format!("Getting references for {} in Rpkg files.", resource_hash).to_string(),
+            format!("Getting Mati json for {} in Rpkg files.", resource_hash).to_string(),
         )?;
         log_callback(msg.as_ptr());
         let (res_meta, res_data) = RpkgExtraction::extract_latest_resource(
@@ -341,7 +340,7 @@ impl RpkgExtraction {
         resource_hash: String,
         partition_manager: &PartitionManager,
         log_callback: extern "C" fn(*const c_char),
-    ) -> anyhow::Result<&Vec<(String)>> {
+    ) -> anyhow::Result<Vec<String>> {
         let msg = std::ffi::CString::new(
             format!("Getting references for {} in Rpkg files.", resource_hash).to_string(),
         )?;
@@ -353,11 +352,22 @@ impl RpkgExtraction {
                 .into_iter()
                 .find(|(x, _)| *x.rrid() == rrid)
             {
-                return Ok(info
+                let msg = std::ffi::CString::new(
+                    format!("Found hash {} in Rpkg files.", resource_hash).to_string(),
+                )?;
+                log_callback(msg.as_ptr());
+                
+                let result = info
                     .references()
                     .iter()
                     .map(|(rrid, _)| rrid.to_hex_string())
-                    .collect());
+                    .collect();
+                let msg = std::ffi::CString::new(
+                    format!("Got references for {} in Rpkg files.", resource_hash).to_string(),
+                )?;
+                log_callback(msg.as_ptr());
+
+                return Ok(result);
             }
         }
         bail!("Couldn't find {rrid} in any partition when extracting referenced resource");

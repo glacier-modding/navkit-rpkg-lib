@@ -7,15 +7,17 @@ pub mod package;
 use crate::extract::rpkg_extraction::RpkgExtraction;
 use crate::json_serde::entities_json::EntitiesJson;
 use crate::package::package_scan::PackageScan;
+use rpkg_rs::resource::partition_manager::PartitionManager;
 use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use hitman_commons::hash_list::HashList;
 
 #[no_mangle]
 pub extern "C" fn extract_scene_mesh_resources(
     nav_json_file: *const c_char,
     runtime_directory: *const c_char,
-    partition_manager: *const rpkg_rs::resource::partition_manager::PartitionManager,
+    partition_manager: *const PartitionManager,
     output_directory: *const c_char,
     output_type: *const c_char,
     log_callback: extern "C" fn(*const c_char),
@@ -96,12 +98,12 @@ pub extern "C" fn extract_resources_from_rpkg(
     runtime_folder: *const c_char,
     needed_hashes: *const *const c_char,
     needed_hashes_len: usize,
-    partition_manager: *const rpkg_rs::resource::partition_manager::PartitionManager,
+    partition_manager: *const PartitionManager,
     output_folder: *const c_char,
     resource_type: *const c_char,
     log_callback: extern "C" fn(*const c_char),
 ) {
-    let msg = std::ffi::CString::new("Extracting Resources from rpkg.".to_string()).unwrap();
+    let msg = CString::new("Extracting Resources from rpkg.".to_string()).unwrap();
     log_callback(msg.as_ptr());
     let runtime_folder_str = unsafe {
         CStr::from_ptr(runtime_folder)
@@ -130,7 +132,7 @@ pub extern "C" fn scan_packages(
     retail_folder: *const c_char,
     game_version: *const c_char,
     log_callback: extern "C" fn(*const c_char),
-) -> *mut rpkg_rs::resource::partition_manager::PartitionManager {
+) -> *mut PartitionManager {
     let retail_folder_str = unsafe { CStr::from_ptr(retail_folder).to_string_lossy().into_owned() };
     let game_version_str = unsafe { CStr::from_ptr(game_version).to_string_lossy().into_owned() };
 
@@ -148,7 +150,7 @@ pub extern "C" fn get_all_resources_hashes_by_type_from_rpkg_files(
     log_callback: extern "C" fn(*const c_char),
 ) -> *mut RustStringList {
     let resource_type_str = unsafe { CStr::from_ptr(resource_type).to_string_lossy().into_owned() };
-    let msg = std::ffi::CString::new(
+    let msg = CString::new(
         format!(
             "Scanning Rpkg files for all {} Resources.",
             resource_type_str
@@ -171,13 +173,57 @@ pub extern "C" fn get_all_resources_hashes_by_type_from_rpkg_files(
 pub extern "C" fn get_hash_list_from_file_or_repo(
     output_folder: *const c_char,
     log_callback: extern "C" fn(*const c_char),
-) -> *mut hitman_commons::hash_list::HashList {
+) -> *mut HashList {
     let output_folder_str = unsafe { CStr::from_ptr(output_folder).to_string_lossy().into_owned() };
 
-    let hash_list = RpkgExtraction::get_hash_list_from_file_or_repo(output_folder_str, log_callback);
-    match hash_list {
-        Ok(hash_list) => Box::into_raw(Box::new(hash_list)),
-        Err => std::ptr::null_mut(),
+    let hash_list =
+        RpkgExtraction::get_hash_list_from_file_or_repo(output_folder_str, log_callback);
+    Box::into_raw(Box::new(hash_list.unwrap()))
+}
+
+#[no_mangle]
+pub extern "C" fn get_all_referenced_hashes_by_hash_from_rpkg_files(
+    resource_hash: *const c_char,
+    partition_manager: *const PartitionManager,
+    log_callback: extern "C" fn(*const c_char),
+) -> *mut RustStringList {
+    let msg = CString::new("Converting resource_hash_str in Rpkg files.".to_string()).unwrap();
+    log_callback(msg.as_ptr());
+    let resource_hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy().into_owned() };
+    let msg = CString::new("Converting partition_manager_ref in Rpkg files.".to_string()).unwrap();
+    log_callback(msg.as_ptr());
+    let partition_manager_ref = unsafe { &*partition_manager };
+    let msg = CString::new("Getting references in Rpkg files.".to_string()).unwrap();
+    log_callback(msg.as_ptr());
+
+    let references = match RpkgExtraction::get_all_referenced_hashes_by_hash_from_rpkg_files(
+        resource_hash_str,
+        partition_manager_ref,
+        log_callback,
+    ) {
+        Ok(references) => Some(references),
+        Err(_) => return std::ptr::null_mut()
+
+    };
+    create_string_list(references.unwrap())
+}
+
+#[no_mangle]
+pub extern "C" fn get_mati_json_by_hash(
+    resource_hash: *const c_char,
+    hash_list: *const HashList,
+    partition_manager: *const PartitionManager,
+    log_callback: extern "C" fn(*const c_char),
+) -> *mut c_char {
+    let resource_hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy().into_owned() };
+    let hash_list_ref = unsafe { &*hash_list };
+    let partition_manager_ref = unsafe { &*partition_manager };
+    
+    match RpkgExtraction::get_mati_json_by_hash(resource_hash_str, hash_list_ref, partition_manager_ref, log_callback) {
+        Ok(json) => {
+            CString::new(json).unwrap_or_default().into_raw()
+        },
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
@@ -218,6 +264,26 @@ pub extern "C" fn get_string_from_list(list: *mut RustStringList, index: usize) 
 
 #[no_mangle]
 pub extern "C" fn free_entities_json(ptr: *mut EntitiesJson) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(ptr);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn free_string(ptr: *mut c_char) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = CString::from_raw(ptr);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn free_hash_list(ptr: *mut hitman_commons::hash_list::HashList) {
     if ptr.is_null() {
         return;
     }

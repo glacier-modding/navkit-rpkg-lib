@@ -867,14 +867,14 @@ dependencies = [
 [[package]]
 name = "hitman-formats"
 version = "0.1.0"
-source = "git+https://github.com/atampy25/hitman-formats#6c1f96deb54213a94542427ede299b4709e61c66"
+source = "git+https://github.com/atampy25/hitman-formats#2819f2664108e1cab7a5c226f5439d5f76a731cb"
 dependencies = [
  "hex",
  "hitman-commons",
  "indexmap 2.13.0",
  "serde",
  "serde_with",
- "thiserror 2.0.18",
+ "thiserror 1.0.61",
  "tryvial",
 ]
 
@@ -1420,6 +1420,7 @@ dependencies = [
  "hitman-commons",
  "hitman-formats",
  "itertools 0.14.0",
+ "log",
  "rayon",
  "reqwest",
  "rpkg-rs",
