@@ -7,11 +7,13 @@ pub mod package;
 use crate::extract::rpkg_extraction::RpkgExtraction;
 use crate::json_serde::entities_json::EntitiesJson;
 use crate::package::package_scan::PackageScan;
+use hitman_commons::hash_list::HashList;
+use hitman_commons::metadata::RuntimeID;
 use rpkg_rs::resource::partition_manager::PartitionManager;
 use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use hitman_commons::hash_list::HashList;
+use std::str::FromStr;
 
 #[no_mangle]
 pub extern "C" fn extract_scene_mesh_resources(
@@ -227,6 +229,98 @@ pub extern "C" fn get_mati_json_by_hash(
     }
 }
 
+fn option_string_to_c_char(s: Option<String>) -> *mut c_char {
+    match s {
+        Some(str) => CString::new(str).map_or(std::ptr::null_mut(), |c| c.into_raw()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_version(list: *const HashList) -> u32 {
+    if list.is_null() {
+        return 0;
+    }
+    let list_ref = unsafe { &*list };
+    list_ref.version
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_all_hashes(list: *const HashList) -> *mut RustStringList {
+    if list.is_null() {
+        // Return an empty list if the hash list is null
+        return create_string_list(vec![]);
+    }
+    let list_ref = unsafe { &*list };
+    let hashes: Vec<String> = list_ref
+        .entries
+        .keys()
+        .map(|rrid| rrid.to_string())
+        .collect();
+    create_string_list(hashes)
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_path_by_hash(
+    list: *const HashList,
+    resource_hash: *const c_char,
+) -> *mut c_char {
+    if list.is_null() || resource_hash.is_null() {
+        return std::ptr::null_mut();
+    }
+    let list_ref = unsafe { &*list };
+    let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
+
+    if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
+        if let Some(data) = list_ref.entries.get(&rrid) {
+            return option_string_to_c_char(data.path.clone());
+        }
+    }
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_hint_by_hash(
+    list: *const HashList,
+    resource_hash: *const c_char,
+) -> *mut c_char {
+    if list.is_null() || resource_hash.is_null() {
+        return std::ptr::null_mut();
+    }
+    let list_ref = unsafe { &*list };
+    let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
+
+    if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
+        if let Some(data) = list_ref.entries.get(&rrid) {
+            return option_string_to_c_char(data.hint.clone());
+        }
+    }
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_resource_type_by_hash(
+    list: *const HashList,
+    resource_hash: *const c_char,
+) -> u32 {
+    // NOTE: This assumes `ResourceType` has an `Unknown` variant and is `#[repr(C)]`.
+    // If not, this function will need to return an i32/u32 instead.
+    const UNKNOWN_TYPE_CODE: u32 = 0;
+    if list.is_null() || resource_hash.is_null() {
+        return UNKNOWN_TYPE_CODE;
+    }
+    let list_ref = unsafe { &*list };
+    let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
+
+    if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
+        if let Some(data) = list_ref.entries.get(&rrid) {
+            let bytes: [u8; 4] = data.resource_type.into();
+            return u32::from_be_bytes(bytes);
+        }
+    }
+    UNKNOWN_TYPE_CODE
+}
+
 #[repr(C)]
 pub struct RustStringList {
     entries: *mut *mut c_char,
@@ -259,6 +353,22 @@ pub extern "C" fn get_string_from_list(list: *mut RustStringList, index: usize) 
         }
         // Access the pointer at the given index
         *list_ref.entries.add(index)
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn free_rust_string_list(ptr: *mut RustStringList) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let list = Box::from_raw(ptr);
+        // Reconstruct the Vec of pointers to drop it, then free each string.
+        let strings = Vec::from_raw_parts(list.entries, list.length, list.length);
+        for s_ptr in strings {
+            // This reconstructs the CString and allows its memory to be freed.
+            let _ = CString::from_raw(s_ptr);
+        }
     }
 }
 
