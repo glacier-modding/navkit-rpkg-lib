@@ -345,18 +345,30 @@ impl RpkgExtraction {
             format!("Getting references for {} in Rpkg files.", resource_hash).to_string(),
         )?;
         log_callback(msg.as_ptr());
+        let msg = std::ffi::CString::new(
+            format!("Converting rrid for {} in Rpkg files.", resource_hash).to_string(),
+        )?;
+        log_callback(msg.as_ptr());
         let rrid = RuntimeResourceID::from_raw_string(&*resource_hash);
+        let msg = std::ffi::CString::new(
+            format!("Getting partitions for {} in Rpkg files.", resource_hash).to_string(),
+        )?;
+        log_callback(msg.as_ptr());
         for partition in &partition_manager.partitions {
+            let msg = std::ffi::CString::new(
+                format!("Checking partition {} for {}.", partition.partition_info().id, resource_hash).to_string(),
+            )?;
+            log_callback(msg.as_ptr());
             if let Some((info, _)) = partition
                 .latest_resources()
                 .into_iter()
                 .find(|(x, _)| *x.rrid() == rrid)
             {
                 let msg = std::ffi::CString::new(
-                    format!("Found hash {} in Rpkg files.", resource_hash).to_string(),
+                    format!("Found hash {} in partition {}.", resource_hash, partition.partition_info().id).to_string(),
                 )?;
                 log_callback(msg.as_ptr());
-                
+
                 let result = info
                     .references()
                     .iter()
@@ -368,6 +380,12 @@ impl RpkgExtraction {
                 log_callback(msg.as_ptr());
 
                 return Ok(result);
+            } else {
+                let msg = std::ffi::CString::new(
+                    format!("Didn't find hash {} in partition {}.", resource_hash, partition.partition_info().id).to_string(),
+                )?;
+                log_callback(msg.as_ptr());
+
             }
         }
         bail!("Couldn't find {rrid} in any partition when extracting referenced resource");
