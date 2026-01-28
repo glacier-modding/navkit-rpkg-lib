@@ -256,7 +256,7 @@ impl RpkgExtraction {
                     .parse::<u32>()
                     .context("Online hash list version wasn't a number")?;
                 
-                let current_version = hash_list.as_ref().and_then(|h: &HashList| Option::from(h.version)).unwrap_or(0);
+                let current_version = hash_list.as_ref().map(|h: &HashList| h.version).unwrap_or(0);
 
                 if current_version >= new_version {
                     let msg = std::ffi::CString::new("Already have latest hash list.".to_string())?;
@@ -317,7 +317,7 @@ impl RpkgExtraction {
         )?;
         log_callback(msg.as_ptr());
         let (res_meta, res_data) = RpkgExtraction::extract_latest_resource(
-            RuntimeResourceID::from_raw_string(&*resource_hash),
+            RuntimeResourceID::from_hex_string(resource_hash.as_str()).map_err(|_| anyhow::anyhow!("Invalid resource hash"))?,
             partition_manager,
         )?;
 
@@ -349,7 +349,7 @@ impl RpkgExtraction {
             format!("Converting rrid for {} in Rpkg files.", resource_hash).to_string(),
         )?;
         log_callback(msg.as_ptr());
-        let rrid = RuntimeResourceID::from_raw_string(&*resource_hash);
+        let rrid = RuntimeResourceID::from_hex_string(resource_hash.as_str()).map_err(|_| anyhow::anyhow!("Invalid resource hash"))?;
         let msg = std::ffi::CString::new(
             format!("Getting partitions for {} in Rpkg files.", resource_hash).to_string(),
         )?;
