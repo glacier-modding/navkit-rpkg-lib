@@ -1,3 +1,4 @@
+use anyhow::Context;
 use itertools::Itertools;
 use rpkg_rs::misc::ini_file_system::IniFileSystem;
 use rpkg_rs::resource::partition_manager::{PartitionManager, PartitionState};
@@ -5,6 +6,7 @@ use rpkg_rs::resource::pdefs::PackageDefinitionSource;
 use rpkg_rs::resource::resource_info::ResourceInfo;
 use rpkg_rs::resource::resource_partition::PatchId;
 use rpkg_rs::resource::runtime_resource_id::RuntimeResourceID;
+use std::fs;
 use std::os::raw::c_char;
 use std::path::PathBuf;
 
@@ -71,7 +73,21 @@ impl PackageScan {
         .unwrap();
         log_callback(msg.as_ptr());
 
-        package_manager = PartitionManager::new(runtime_path.clone());
+        let partitions = PackageDefinitionSource::HM3(
+            fs::read(runtime_path.join("packagedefinition.txt")).unwrap(),
+        )
+        .read()
+        .context("Couldn't read packagedefinition")
+        .unwrap();
+        package_manager = PartitionManager::new(
+            runtime_path.clone(),
+            &PackageDefinitionSource::Custom(partitions),
+        )
+        .ok()?;
+
+        let msg =
+            std::ffi::CString::new("Mounting partitions...").unwrap();
+        log_callback(msg.as_ptr());
 
         //read the packagedefs here
         let mut last_index = 0;
@@ -79,25 +95,21 @@ impl PackageScan {
         let progress_callback = |current, state: &PartitionState| {
             if current != last_index {
                 last_index = current;
-                print!("Mounting partition {} ", current);
             }
             let install_progress = (state.install_progress * 10.0).ceil() / 10.0;
-
-            let chars_to_add = (install_progress * 10.0 - progress * 10.0) as usize * 2;
-            let chars_to_add = std::cmp::min(chars_to_add, 20);
-            print!("{}", "█".repeat(chars_to_add));
 
             progress = install_progress;
 
             if progress == 1.0 {
                 progress = 0.0;
-                let msg = std::ffi::CString::new(" done :)").unwrap();
+                let msg =
+                    std::ffi::CString::new(format!("Done mounting partition {}", current)).unwrap();
                 log_callback(msg.as_ptr());
             }
         };
 
         let package_defs_bytes =
-            match std::fs::read(runtime_path.join("packagedefinition.txt").as_path()) {
+            match fs::read(runtime_path.join("packagedefinition.txt").as_path()) {
                 Ok(c) => c,
                 Err(e) => {
                     let msg = std::ffi::CString::new(format!(
@@ -111,8 +123,6 @@ impl PackageScan {
             };
 
         let mut package_defs = match match game_version.as_str() {
-            "HM2016" => PackageDefinitionSource::HM2016(package_defs_bytes).read(),
-            "HM2" => PackageDefinitionSource::HM2(package_defs_bytes).read(),
             "HM3" => PackageDefinitionSource::HM3(package_defs_bytes).read(),
             e => {
                 let msg = std::ffi::CString::new(format!("invalid game version: {}", e)).unwrap();
@@ -135,10 +145,7 @@ impl PackageScan {
             partition.set_max_patch_level(301);
         }
 
-        if let Err(e) = package_manager.mount_partitions(
-            PackageDefinitionSource::Custom(package_defs),
-            progress_callback,
-        ) {
+        if let Err(e) = package_manager.mount_partitions(progress_callback) {
             let msg =
                 std::ffi::CString::new(format!("failed to init package manager: {}", e)).unwrap();
             log_callback(msg.as_ptr());
@@ -153,7 +160,7 @@ impl PackageScan {
     ) -> Option<ResourceInfoAndPartition> {
         let mut last_occurrence: Option<&ResourceInfo> = None;
         let mut last_partition: Option<String> = None;
-        for partition in package_manager.partitions() {
+        for partition in package_manager.partitions.as_slice() {
             let changes = partition.resource_patch_indices(rrid);
             let deletions = partition.resource_removal_indices(rrid);
             let occurrences = changes
