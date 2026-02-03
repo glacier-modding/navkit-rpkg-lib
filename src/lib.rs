@@ -213,15 +213,13 @@ pub extern "C" fn get_all_referenced_hashes_by_hash_from_rpkg_files(
 #[no_mangle]
 pub extern "C" fn get_mati_json_by_hash(
     resource_hash: *const c_char,
-    hash_list: *const HashList,
     partition_manager: *const PartitionManager,
     log_callback: extern "C" fn(*const c_char),
 ) -> *mut c_char {
     let resource_hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy().into_owned() };
-    let hash_list_ref = unsafe { &*hash_list };
     let partition_manager_ref = unsafe { &*partition_manager };
     
-    match RpkgExtraction::get_mati_json_by_hash(resource_hash_str, hash_list_ref, partition_manager_ref, log_callback) {
+    match RpkgExtraction::get_mati_json_by_hash(resource_hash_str, partition_manager_ref, log_callback) {
         Ok(json) => {
             CString::new(json).unwrap_or_default().into_raw()
         },
@@ -242,7 +240,7 @@ pub extern "C" fn hash_list_get_version(list: *const HashList) -> u32 {
         return 0;
     }
     let list_ref = unsafe { &*list };
-    list_ref.version
+    list_ref.version.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[no_mangle]
@@ -252,8 +250,9 @@ pub extern "C" fn hash_list_get_all_hashes(list: *const HashList) -> *mut RustSt
         return create_string_list(vec![]);
     }
     let list_ref = unsafe { &*list };
-    let hashes: Vec<String> = list_ref
-        .entries
+    let map_guard = list_ref.entries.load();
+
+    let hashes: Vec<String> = map_guard
         .keys()
         .map(|rrid| rrid.to_string())
         .collect();
@@ -272,8 +271,10 @@ pub extern "C" fn hash_list_get_path_by_hash(
     let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
 
     if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
-        if let Some(data) = list_ref.entries.get(&rrid) {
-            return option_string_to_c_char(data.path.clone());
+        if let Some(data) = list_ref.entries.load().get(&rrid) {
+            if let Some(path) = data.path.as_ref() {
+                return option_string_to_c_char(Some(String::from(path.clone())));
+            }
         }
     }
     std::ptr::null_mut()
@@ -291,8 +292,10 @@ pub extern "C" fn hash_list_get_hint_by_hash(
     let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
 
     if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
-        if let Some(data) = list_ref.entries.get(&rrid) {
-            return option_string_to_c_char(data.hint.clone());
+        if let Some(data) = list_ref.entries.load().get(&rrid) {
+            if let Some(hint) = data.hint.as_ref() {
+                return option_string_to_c_char(Some(String::from(hint.clone())));
+            }
         }
     }
     std::ptr::null_mut()
@@ -313,7 +316,7 @@ pub extern "C" fn hash_list_get_resource_type_by_hash(
     let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
 
     if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
-        if let Some(data) = list_ref.entries.get(&rrid) {
+        if let Some(data) = list_ref.entries.load().get(&rrid) {
             let bytes: [u8; 4] = data.resource_type.into();
             return u32::from_be_bytes(bytes);
         }

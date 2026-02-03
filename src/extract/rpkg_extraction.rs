@@ -166,8 +166,10 @@ impl RpkgExtraction {
                             file_extension = ".PRIM".to_string();
                         } else if resource_type_ref == "NAVP" {
                             file_extension = ".NAVP".to_string();
-                        } else {
+                        } else if resource_type_ref == "AIRG" {
                             file_extension = ".AIRG".to_string();
+                        } else {
+                            file_extension = ".TEXT".to_string();
                         }
                         let resource_file_path_buf =
                             output_folder_path.join(hash.clone() + &file_extension);
@@ -256,7 +258,7 @@ impl RpkgExtraction {
                     .parse::<u32>()
                     .context("Online hash list version wasn't a number")?;
                 
-                let current_version = hash_list.as_ref().map(|h: &HashList| h.version).unwrap_or(0);
+                let current_version = hash_list.as_ref().map(|h: &HashList | h.version.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(0);
 
                 if current_version >= new_version {
                     let msg = std::ffi::CString::new("Already have latest hash list.".to_string())?;
@@ -308,7 +310,6 @@ impl RpkgExtraction {
 
     pub fn get_mati_json_by_hash(
         resource_hash: String,
-        hash_list: &HashList,
         partition_manager: &PartitionManager,
         log_callback: extern "C" fn(*const c_char),
     ) -> anyhow::Result<String> {
@@ -323,7 +324,7 @@ impl RpkgExtraction {
 
         let material = MaterialInstance::parse(
             &res_data,
-            &res_meta.core_info.with_hash_list(&hash_list.entries),
+            &res_meta.core_info,
         )
         .context("Couldn't parse material instance")?;
 
