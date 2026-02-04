@@ -165,37 +165,13 @@ checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
 
 [[package]]
 name = "binrw"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d4bca59c20d6f40c2cc0802afbe1e788b89096f61bdf7aeea6bf00f10c2909b"
-dependencies = [
- "array-init 2.1.0",
- "binrw_derive 0.14.1",
- "bytemuck",
-]
-
-[[package]]
-name = "binrw"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81419ff39e6ed10a92a7f125290859776ced35d9a08a665ae40b23e7ca702f30"
 dependencies = [
  "array-init 2.1.0",
- "binrw_derive 0.15.0",
+ "binrw_derive",
  "bytemuck",
-]
-
-[[package]]
-name = "binrw_derive"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8ba42866ce5bced2645bfa15e97eef2c62d2bdb530510538de8dd3d04efff3c"
-dependencies = [
- "either",
- "owo-colors 3.5.0",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -205,7 +181,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "376404e55ec40d0d6f8b4b7df3f87b87954bd987f0cf9a7207ea3b6ea5c9add4"
 dependencies = [
  "either",
- "owo-colors 4.2.3",
+ "owo-colors",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
@@ -234,17 +210,6 @@ checksum = "197bd7cb670a9b8b7238f62558f3c1823cd399795d70590a7bdfe7787073d2d5"
 dependencies = [
  "num-traits",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "bitfield-struct"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2be5a46ba01b60005ae2c51a36a29cfe134bcacae2dd5cedcd4615fbaad1494b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]
@@ -320,6 +285,12 @@ name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
+name = "byteorder-lite"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "bytes"
@@ -794,16 +765,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "glacier-ini"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16ac22e00cb538a4e10a485378c256caac27e2c5656e14a268d2dba073720cde"
+dependencies = [
+ "byteorder",
+ "crc32fast",
+ "extended-tea",
+ "indexmap 2.13.0",
+ "itertools 0.14.0",
+ "pathdiff",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "glacier-texture"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23fbd0d9c9bc0b47ab18db07dab045e305fd84072cd721086f43d5b3cded861d"
 dependencies = [
- "binrw 0.15.0",
- "bitfield-struct 0.11.0",
+ "binrw",
+ "bitfield-struct",
  "directxtex",
+ "image",
  "lz4",
  "png",
+ "rpkg-rs",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -1181,6 +1169,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "image"
+version = "0.25.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6506c6c10786659413faa717ceebcb8f70731c0a60cbae39795fdf114519c1a"
+dependencies = [
+ "bytemuck",
+ "byteorder-lite",
+ "moxcms",
+ "num-traits",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1446,6 +1446,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "moxcms"
+version = "0.7.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac9557c559cd6fc9867e122e20d2cbefc9ca29d80d027a8e39310920ed2f0a97"
+dependencies = [
+ "num-traits",
+ "pxfm",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1468,10 +1478,11 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "cbindgen",
+ "glacier-ini",
+ "glacier-texture",
  "hitman-commons",
  "hitman-formats",
  "itertools 0.14.0",
- "log",
  "rayon",
  "reqwest",
  "rpkg-rs",
@@ -1630,12 +1641,6 @@ checksum = "e2355d85b9a3786f481747ced0e0ff2ba35213a1f9bd406ed906554d7af805a1"
 
 [[package]]
 name = "owo-colors"
-version = "3.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
-
-[[package]]
-name = "owo-colors"
 version = "4.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
@@ -1675,9 +1680,9 @@ dependencies = [
 
 [[package]]
 name = "pathdiff"
-version = "0.2.1"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8835116a5c179084a830efb3adc117ab007512b535bc1a21c991d3b32a6b44dd"
+checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "percent-encoding"
@@ -1748,6 +1753,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "pxfm"
+version = "0.1.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7186d3822593aa4393561d186d1393b3923e9d6163d3fbfd6e825e3e6cf3e6a8"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -1908,15 +1922,16 @@ dependencies = [
 
 [[package]]
 name = "rpkg-rs"
-version = "1.2.0"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8154a673670affb5e5c931b8c5ea25b1c6a2b35b870ea18bf49e63af3cb7d84b"
+checksum = "a66a90ffc1ffb6881811394d9d90a4b5e92d16386f35569a7db6f8c620466bb8"
 dependencies = [
- "binrw 0.14.1",
- "bitfield-struct 0.10.1",
+ "binrw",
+ "bitfield-struct",
  "byteorder",
  "crc32fast",
  "extended-tea",
+ "glacier-ini",
  "indexmap 2.13.0",
  "itertools 0.14.0",
  "lazy-regex",
@@ -2057,7 +2072,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

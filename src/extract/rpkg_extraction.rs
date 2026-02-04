@@ -1,5 +1,7 @@
 use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::PackageScan};
 use anyhow::{bail, Context};
+use glacier_texture::{self, convert, texture_map::TextureMap, WoaVersion};
+use hitman_commons::game::GameVersion;
 use hitman_commons::hash_list::HashList;
 use hitman_commons::metadata::ExtendedResourceMetadata;
 use hitman_formats::material::MaterialInstance;
@@ -146,7 +148,7 @@ impl RpkgExtraction {
                                 }
                             }
                         };
-                        let resource_contents = match rpkg.read_resource(&rrid) {
+                        let mut resource_contents = match rpkg.read_resource(&rrid) {
                             Ok(c) => c,
                             Err(e) => {
                                 let msg = std::ffi::CString::new(format!(
@@ -168,8 +170,15 @@ impl RpkgExtraction {
                             file_extension = ".NAVP".to_string();
                         } else if resource_type_ref == "AIRG" {
                             file_extension = ".AIRG".to_string();
+                        } else if resource_type_ref == "TEXT" {
+                            let texture = TextureMap::from_memory(&resource_contents, WoaVersion::from(GameVersion::H3))
+                                .unwrap();
+                            resource_contents = convert::create_tga(&texture).unwrap();
+                            file_extension = ".TGA".to_string();
                         } else {
-                            file_extension = ".TEXT".to_string();
+                            let msg = std::ffi::CString::new(format!("Invalid resource type: {}", resource_type_ref)).unwrap();
+                            log_callback(msg.as_ptr());
+                            return Err(());
                         }
                         let resource_file_path_buf =
                             output_folder_path.join(hash.clone() + &file_extension);
@@ -235,8 +244,10 @@ impl RpkgExtraction {
         needed_hashes
     }
 
-    pub fn get_hash_list_from_file_or_repo(output_folder: String,
-                                           log_callback: extern "C" fn(*const c_char),) -> anyhow::Result<HashList> {
+    pub fn get_hash_list_from_file_or_repo(
+        output_folder: String,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> anyhow::Result<HashList> {
         let msg = std::ffi::CString::new("Loading hash list from file.".to_string())?;
         log_callback(msg.as_ptr());
         let hash_list_path = PathBuf::from(&output_folder).join("hash_list.sml");
@@ -246,9 +257,9 @@ impl RpkgExtraction {
                 let msg = std::ffi::CString::new("No hash list file.".to_string())?;
                 log_callback(msg.as_ptr());
                 None
-            },
+            }
         };
-        
+
         if let Ok(response) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_VERSION_ENDPOINT) {
             if let Ok(data) = response.text() {
                 let msg = std::ffi::CString::new("Checking latest hash list version.".to_string())?;
@@ -257,30 +268,37 @@ impl RpkgExtraction {
                     .trim()
                     .parse::<u32>()
                     .context("Online hash list version wasn't a number")?;
-                
-                let current_version = hash_list.as_ref().map(|h: &HashList | h.version.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(0);
+
+                let current_version = hash_list
+                    .as_ref()
+                    .map(|h: &HashList| h.version.load(std::sync::atomic::Ordering::Relaxed))
+                    .unwrap_or(0);
 
                 if current_version >= new_version {
                     let msg = std::ffi::CString::new("Already have latest hash list.".to_string())?;
                     log_callback(msg.as_ptr());
                     return hash_list.ok_or_else(|| anyhow::anyhow!("Local hash list missing."));
                 }
-                
+
                 if let Ok(response) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_ENDPOINT) {
                     if let Ok(data) = response.bytes() {
-                        let msg = std::ffi::CString::new("Newer hash list version found. Downloading.".to_string())?;
+                        let msg = std::ffi::CString::new(
+                            "Newer hash list version found. Downloading.".to_string(),
+                        )?;
                         log_callback(msg.as_ptr());
                         let new_hash_list = HashList::from_compressed(&data)?;
 
                         fs::write(hash_list_path, serde_smile::to_vec(&new_hash_list)?)?;
-                        let msg = std::ffi::CString::new("Finished downloading latest hash list.".to_string())?;
+                        let msg = std::ffi::CString::new(
+                            "Finished downloading latest hash list.".to_string(),
+                        )?;
                         log_callback(msg.as_ptr());
                         return Ok(new_hash_list);
                     }
                 }
             }
         }
-        
+
         hash_list.ok_or_else(|| anyhow::anyhow!("Failed to retrieve hash list."))
     }
 
@@ -318,15 +336,13 @@ impl RpkgExtraction {
         )?;
         log_callback(msg.as_ptr());
         let (res_meta, res_data) = RpkgExtraction::extract_latest_resource(
-            RuntimeResourceID::from_hex_string(resource_hash.as_str()).map_err(|_| anyhow::anyhow!("Invalid resource hash"))?,
+            RuntimeResourceID::from_hex_string(resource_hash.as_str())
+                .map_err(|_| anyhow::anyhow!("Invalid resource hash"))?,
             partition_manager,
         )?;
 
-        let material = MaterialInstance::parse(
-            &res_data,
-            &res_meta.core_info,
-        )
-        .context("Couldn't parse material instance")?;
+        let material = MaterialInstance::parse(&res_data, &res_meta.core_info)
+            .context("Couldn't parse material instance")?;
 
         let mut buf = Vec::new();
         let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");
@@ -350,14 +366,20 @@ impl RpkgExtraction {
             format!("Converting rrid for {} in Rpkg files.", resource_hash).to_string(),
         )?;
         log_callback(msg.as_ptr());
-        let rrid = RuntimeResourceID::from_hex_string(resource_hash.as_str()).map_err(|_| anyhow::anyhow!("Invalid resource hash"))?;
+        let rrid = RuntimeResourceID::from_hex_string(resource_hash.as_str())
+            .map_err(|_| anyhow::anyhow!("Invalid resource hash"))?;
         let msg = std::ffi::CString::new(
             format!("Getting partitions for {} in Rpkg files.", resource_hash).to_string(),
         )?;
         log_callback(msg.as_ptr());
         for partition in &partition_manager.partitions {
             let msg = std::ffi::CString::new(
-                format!("Checking partition {} for {}.", partition.partition_info().id, resource_hash).to_string(),
+                format!(
+                    "Checking partition {} for {}.",
+                    partition.partition_info().id,
+                    resource_hash
+                )
+                .to_string(),
             )?;
             log_callback(msg.as_ptr());
             if let Some((info, _)) = partition
@@ -366,7 +388,12 @@ impl RpkgExtraction {
                 .find(|(x, _)| *x.rrid() == rrid)
             {
                 let msg = std::ffi::CString::new(
-                    format!("Found hash {} in partition {}.", resource_hash, partition.partition_info().id).to_string(),
+                    format!(
+                        "Found hash {} in partition {}.",
+                        resource_hash,
+                        partition.partition_info().id
+                    )
+                    .to_string(),
                 )?;
                 log_callback(msg.as_ptr());
 
@@ -383,10 +410,14 @@ impl RpkgExtraction {
                 return Ok(result);
             } else {
                 let msg = std::ffi::CString::new(
-                    format!("Didn't find hash {} in partition {}.", resource_hash, partition.partition_info().id).to_string(),
+                    format!(
+                        "Didn't find hash {} in partition {}.",
+                        resource_hash,
+                        partition.partition_info().id
+                    )
+                    .to_string(),
                 )?;
                 log_callback(msg.as_ptr());
-
             }
         }
         bail!("Couldn't find {rrid} in any partition when extracting referenced resource");

@@ -1,6 +1,6 @@
 use anyhow::Context;
 use itertools::Itertools;
-use rpkg_rs::misc::ini_file_system::IniFileSystem;
+use glacier_ini::IniFileSystem;
 use rpkg_rs::resource::partition_manager::{PartitionManager, PartitionState};
 use rpkg_rs::resource::pdefs::PackageDefinitionSource;
 use rpkg_rs::resource::resource_info::ResourceInfo;
@@ -36,8 +36,7 @@ impl PackageScan {
         let mut package_manager: PartitionManager;
         let retail_path = PathBuf::from(&retail_folder);
         let thumbs_path = retail_path.join("thumbs.dat");
-
-        let thumbs = match IniFileSystem::from(&thumbs_path.as_path()) {
+        let thumbs = match IniFileSystem::from_path(&thumbs_path.as_path()) {
             Ok(c) => c,
             Err(e) => {
                 let msg =
