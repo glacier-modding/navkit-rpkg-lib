@@ -1,7 +1,16 @@
+use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::PackageScan};
+use anyhow::{bail, Context};
+use glacier_texture::mipblock::MipblockData;
+use glacier_texture::{self, convert, texture_map::TextureMap, WoaVersion};
+use hitman_commons::game::GameVersion;
+use hitman_commons::hash_list::HashList;
+use hitman_commons::metadata::ExtendedResourceMetadata;
+use hitman_formats::material::MaterialInstance;
 use rpkg_rs::resource::{
     partition_manager::PartitionManager, resource_package::ResourcePackage,
     runtime_resource_id::RuntimeResourceID,
 };
+use serde::Serialize;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::slice;
@@ -12,11 +21,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::PackageScan};
-
 pub struct RpkgExtraction;
 
 impl RpkgExtraction {
+    pub const HASH_LIST_VERSION_ENDPOINT: &str =
+        "https://github.com/glacier-modding/Hitman-Hashes/releases/latest/download/version";
+
+    pub const HASH_LIST_ENDPOINT: &str =
+        "https://github.com/glacier-modding/Hitman-Hashes/releases/latest/download/hash_list.sml";
+
     pub unsafe fn extract_resources_from_rpkg(
         runtime_folder: String,
         needed_hashes: *const *const c_char,
@@ -76,7 +89,18 @@ impl RpkgExtraction {
 
                     let mut skipped = 0;
                     let mut extracted = 0;
+
+                    let msg = std::ffi::CString::new(format!(
+                        "Thread {} started: {} resources in chunk.",
+                        chunk_i, chunk.len())
+                    ).unwrap();
+                    log_callback(msg.as_ptr());
                     for hash in chunk {
+                        let msg = std::ffi::CString::new(format!(
+                            "Thread {}: Extracting hash {}.",
+                            chunk_i, hash)
+                        ).unwrap();
+                        log_callback(msg.as_ptr());
                         let runtime_folder_path = PathBuf::from(runtime_folder_ref);
 
                         let rrid: RuntimeResourceID =
@@ -84,8 +108,8 @@ impl RpkgExtraction {
                                 Ok(id) => id,
                                 Err(_) => {
                                     let msg = std::ffi::CString::new(format!(
-                                        "Error getting RRID from hash: {}",
-                                        hash.as_str()
+                                        "Thread {}: Error getting RRID from hash: {}",
+                                        chunk_i, hash.as_str()
                                     ))
                                     .unwrap();
                                     log_callback(msg.as_ptr());
@@ -96,10 +120,7 @@ impl RpkgExtraction {
                             PackageScan::get_resource_info(partition_manager, &rrid) {
                                 Some(info) => info,
                                 None => {
-                                    let msg = std::ffi::CString::new(format!(
-                                        "Error getting resource info for hash: {}",
-                                        hash.as_str()
-                                    ))
+                                    let msg = std::ffi::CString::new(format!("Thread {}: Error getting resource info for hash: {}", chunk_i, hash.as_str()))
                                     .unwrap();
                                     log_callback(msg.as_ptr());
                                     return Err(());
@@ -115,6 +136,11 @@ impl RpkgExtraction {
                         if aloc_or_prim_file_path.exists() {
                             let aloc_or_prim_file_path_metadata = aloc_or_prim_file_path.metadata();
                             if aloc_or_prim_file_path_metadata.unwrap().modified().unwrap() >= package_path.metadata().unwrap().modified().unwrap() {
+                                // let msg = std::ffi::CString::new(format!(
+                                //     "Thread {}: Skipping hash {} since the file is newer than the rpkg.",
+                                //     chunk_i, hash)
+                                // ).unwrap();
+                                // log_callback(msg.as_ptr());
                                 skipped += 1;
                                 continue
                             }
@@ -125,10 +151,7 @@ impl RpkgExtraction {
                                 match ResourcePackage::from_file(&package_path_buf) {
                                     Ok(pkg) => entry.insert(pkg),
                                     Err(e) => {
-                                        let msg = std::ffi::CString::new(format!(
-                                            "Failed parse resource package: {}",
-                                            e
-                                        ))
+                                        let msg = std::ffi::CString::new(format!("Thread {}: Failed to parse resource package {}: {}", chunk_i, package_path_buf.to_str().unwrap(), e))
                                         .unwrap();
                                         log_callback(msg.as_ptr());
                                         return Err(());
@@ -136,13 +159,10 @@ impl RpkgExtraction {
                                 }
                             }
                         };
-                        let resource_contents = match rpkg.read_resource(&package_path_buf, &rrid) {
+                        let mut resource_contents = match rpkg.read_resource(&rrid) {
                             Ok(c) => c,
                             Err(e) => {
-                                let msg = std::ffi::CString::new(format!(
-                                    "Failed extract resource: {}",
-                                    e
-                                ))
+                                let msg = std::ffi::CString::new(format!("Thread {} Failed to extract resource {}: {}", chunk_i, hash, e))
                                 .unwrap();
                                 log_callback(msg.as_ptr());
                                 return Err(());
@@ -156,8 +176,86 @@ impl RpkgExtraction {
                             file_extension = ".PRIM".to_string();
                         } else if resource_type_ref == "NAVP" {
                             file_extension = ".NAVP".to_string();
-                        } else {
+                        } else if resource_type_ref == "AIRG" {
                             file_extension = ".AIRG".to_string();
+                        } else if resource_type_ref == "TEXT" {
+                            let mut texture = match TextureMap::from_memory(&resource_contents, WoaVersion::from(GameVersion::H3)) {
+                                Ok(result) => result,
+                                Err(e) => {
+                                    let msg = std::ffi::CString::new(format!(
+                                        "Thread {}: Error building texture for hash {}: {}.",
+                                        chunk_i, hash, e.to_string())
+                                    ).unwrap();
+                                    log_callback(msg.as_ptr());
+                                    return Err(());
+                                }
+                            };
+
+                            match RpkgExtraction::get_all_referenced_hashes_by_hash_from_rpkg_files(
+                                String::from(hash),
+                                partition_manager,
+                                log_callback,
+                            ){
+                                Ok(references) => {
+                                    match references.first() {
+                                        Some(texd_hash) => {
+                                            let (_, texd_data) = match RpkgExtraction::extract_latest_resource(
+                                                RuntimeResourceID::from_hex_string(texd_hash.as_str()).unwrap(),
+                                                partition_manager,
+                                            ) {
+                                                Ok(result) => result,
+                                                Err(e) => {
+                                                    let msg = std::ffi::CString::new(format!(
+                                                        "Thread {}: Error getting latest texd data for hash {}: {}.",
+                                                        chunk_i, hash, e.to_string())
+                                                    ).unwrap();
+                                                    log_callback(msg.as_ptr());
+                                                    return Err(());
+                                                }
+                                            };
+                                            let mipblock = match MipblockData::from_memory(&texd_data, WoaVersion::HM3) {
+                                                Ok(result) => result,
+                                                Err(e) => {
+                                                    let msg = std::ffi::CString::new(format!(
+                                                        "Thread {}: Error building MipblockData for hash {}: {}.",
+                                                        chunk_i, hash, e.to_string())
+                                                    ).unwrap();
+                                                    log_callback(msg.as_ptr());
+                                                    return Err(());
+                                                }
+                                            };
+                                            texture.set_mipblock1(mipblock);
+                                        },
+                                        None => {
+                                            let msg = std::ffi::CString::new(format!("Thread {}: No texd for {}", chunk_i, hash))
+                                                .unwrap();
+                                            log_callback(msg.as_ptr());
+                                        }
+                                    };
+                                }
+                                Err(e) =>  {
+                                    let msg = std::ffi::CString::new(format!("Thread {}: Failed to get references for {}: {}", chunk_i, hash, e))
+                                        .unwrap();
+                                    log_callback(msg.as_ptr());
+                                    return Err(());
+                                }
+                            };
+                            resource_contents = match convert::create_tga(&texture)  {
+                                Ok(result) => result,
+                                Err(e) => {
+                                    let msg = std::ffi::CString::new(format!(
+                                        "Thread {}: Error creating tga for hash {}: {}.",
+                                        chunk_i, hash, e.to_string())
+                                    ).unwrap();
+                                    log_callback(msg.as_ptr());
+                                    return Err(());
+                                }
+                            };
+                            file_extension = ".TGA".to_string();
+                        } else {
+                            let msg = std::ffi::CString::new(format!("Invalid resource type: {}", resource_type_ref)).unwrap();
+                            log_callback(msg.as_ptr());
+                            return Err(());
                         }
                         let resource_file_path_buf =
                             output_folder_path.join(hash.clone() + &file_extension);
@@ -223,13 +321,192 @@ impl RpkgExtraction {
         needed_hashes
     }
 
+    pub fn get_hash_list_from_file_or_repo(
+        output_folder: String,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> anyhow::Result<HashList> {
+        let msg = std::ffi::CString::new("Loading hash list from file.".to_string())?;
+        log_callback(msg.as_ptr());
+        let hash_list_path = PathBuf::from(&output_folder).join("hash_list.sml");
+        let hash_list = match fs::read(hash_list_path.clone()) {
+            Ok(bytes) => serde_smile::from_slice(&bytes).ok(),
+            Err(_e) => {
+                let msg = std::ffi::CString::new("No hash list file.".to_string())?;
+                log_callback(msg.as_ptr());
+                None
+            }
+        };
+
+        if let Ok(response) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_VERSION_ENDPOINT) {
+            if let Ok(data) = response.text() {
+                let msg = std::ffi::CString::new("Checking latest hash list version.".to_string())?;
+                log_callback(msg.as_ptr());
+                let new_version = data
+                    .trim()
+                    .parse::<u32>()
+                    .context("Online hash list version wasn't a number")?;
+
+                let current_version = hash_list
+                    .as_ref()
+                    .map(|h: &HashList| h.version.load(std::sync::atomic::Ordering::Relaxed))
+                    .unwrap_or(0);
+
+                if current_version >= new_version {
+                    let msg = std::ffi::CString::new("Already have latest hash list.".to_string())?;
+                    log_callback(msg.as_ptr());
+                    return hash_list.ok_or_else(|| anyhow::anyhow!("Local hash list missing."));
+                }
+
+                if let Ok(response) = reqwest::blocking::get(RpkgExtraction::HASH_LIST_ENDPOINT) {
+                    if let Ok(data) = response.bytes() {
+                        let msg = std::ffi::CString::new(
+                            "Newer hash list version found. Downloading.".to_string(),
+                        )?;
+                        log_callback(msg.as_ptr());
+                        let new_hash_list = HashList::from_compressed(&data)?;
+
+                        fs::write(hash_list_path, serde_smile::to_vec(&new_hash_list)?)?;
+                        let msg = std::ffi::CString::new(
+                            "Finished downloading latest hash list.".to_string(),
+                        )?;
+                        log_callback(msg.as_ptr());
+                        return Ok(new_hash_list);
+                    }
+                }
+            }
+        }
+
+        hash_list.ok_or_else(|| anyhow::anyhow!("Failed to retrieve hash list."))
+    }
+
+    // From GlacierKit
+    pub fn extract_latest_resource(
+        resource_id: RuntimeResourceID,
+        partition_manager: &PartitionManager,
+    ) -> anyhow::Result<(ExtendedResourceMetadata, Vec<u8>)> {
+        for partition in &partition_manager.partitions {
+            if let Some((info, _)) = partition
+                .latest_resources()
+                .into_iter()
+                .find(|(x, _)| *x.rrid() == resource_id)
+            {
+                return Ok((
+                    info.try_into()
+                        .with_context(|| format!("Couldn't extract resource {resource_id}"))?,
+                    partition
+                        .read_resource(&resource_id)
+                        .with_context(|| format!("Couldn't extract {resource_id} using rpkg-rs"))?,
+                ));
+            }
+        }
+
+        bail!("Couldn't find {resource_id} in any partition when extracting resource");
+    }
+
+    pub fn get_mati_json_by_hash(
+        resource_hash: String,
+        partition_manager: &PartitionManager,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> anyhow::Result<String> {
+        let msg = std::ffi::CString::new(
+            format!("Getting Mati json for {} in Rpkg files.", resource_hash).to_string(),
+        )?;
+        log_callback(msg.as_ptr());
+        let (res_meta, res_data) = RpkgExtraction::extract_latest_resource(
+            RuntimeResourceID::from_hex_string(resource_hash.as_str())
+                .map_err(|_| anyhow::anyhow!("Invalid resource hash"))?,
+            partition_manager,
+        )?;
+
+        let material = MaterialInstance::parse(&res_data, &res_meta.core_info)
+            .context("Couldn't parse material instance")?;
+
+        let mut buf = Vec::new();
+        let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");
+        let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
+
+        material.serialize(&mut ser)?;
+
+        Ok(String::from_utf8(buf)?)
+    }
+
+    pub fn get_all_referenced_hashes_by_hash_from_rpkg_files(
+        resource_hash: String,
+        partition_manager: &PartitionManager,
+        log_callback: extern "C" fn(*const c_char),
+    ) -> anyhow::Result<Vec<String>> {
+        // let msg = std::ffi::CString::new(
+        //     format!("Getting references for {} in Rpkg files.", resource_hash).to_string(),
+        // )?;
+        // log_callback(msg.as_ptr());
+        // let msg = std::ffi::CString::new(
+        //     format!("Converting rrid for {} in Rpkg files.", resource_hash).to_string(),
+        // )?;
+        // log_callback(msg.as_ptr());
+        let rrid = RuntimeResourceID::from_hex_string(resource_hash.as_str())
+            .map_err(|_| anyhow::anyhow!("Invalid resource hash"))?;
+        // let msg = std::ffi::CString::new(
+        //     format!("Getting partitions for {} in Rpkg files.", resource_hash).to_string(),
+        // )?;
+        // log_callback(msg.as_ptr());
+        for partition in &partition_manager.partitions {
+            // let msg = std::ffi::CString::new(
+            //     format!(
+            //         "Checking partition {} for {}.",
+            //         partition.partition_info().id,
+            //         resource_hash
+            //     )
+            //     .to_string(),
+            // )?;
+            // log_callback(msg.as_ptr());
+            if let Some((info, _)) = partition
+                .latest_resources()
+                .into_iter()
+                .find(|(x, _)| *x.rrid() == rrid)
+            {
+                // let msg = std::ffi::CString::new(
+                //     format!(
+                //         "Found hash {} in partition {}.",
+                //         resource_hash,
+                //         partition.partition_info().id
+                //     )
+                //     .to_string(),
+                // )?;
+                // log_callback(msg.as_ptr());
+
+                let result = info
+                    .references()
+                    .iter()
+                    .map(|(rrid, _)| rrid.to_hex_string())
+                    .collect();
+                // let msg = std::ffi::CString::new(
+                //     format!("Got references for {} in Rpkg files.", resource_hash).to_string(),
+                // )?;
+                // log_callback(msg.as_ptr());
+
+                return Ok(result);
+            } else {
+                let msg = std::ffi::CString::new(
+                    format!(
+                        "Didn't find hash {} in partition {}.",
+                        resource_hash,
+                        partition.partition_info().id
+                    )
+                    .to_string(),
+                )?;
+                log_callback(msg.as_ptr());
+            }
+        }
+        bail!("Couldn't find {rrid} in any partition when extracting referenced resource");
+    }
+
     pub fn get_all_resources_hashes_by_type_from_rpkg_files(
         partition_manager: &PartitionManager,
         resource_type: String,
         log_callback: extern "C" fn(*const c_char),
     ) -> Vec<String> {
-        let navps: Vec<_> = partition_manager
-            .partitions()
+        let resources: Vec<_> = partition_manager
+            .partitions
             .iter()
             .flat_map(|partition| {
                 partition
@@ -242,7 +519,7 @@ impl RpkgExtraction {
             })
             .collect();
         let mut resource_hashes: HashSet<String> = HashSet::new();
-        navps.iter().for_each(|resource| {
+        resources.iter().for_each(|resource| {
             let rid = resource.rrid();
             resource_hashes.insert(rid.to_hex_string());
         });

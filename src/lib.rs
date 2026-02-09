@@ -7,15 +7,19 @@ pub mod package;
 use crate::extract::rpkg_extraction::RpkgExtraction;
 use crate::json_serde::entities_json::EntitiesJson;
 use crate::package::package_scan::PackageScan;
+use hitman_commons::hash_list::HashList;
+use hitman_commons::metadata::RuntimeID;
+use rpkg_rs::resource::partition_manager::PartitionManager;
 use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::str::FromStr;
 
 #[no_mangle]
 pub extern "C" fn extract_scene_mesh_resources(
     nav_json_file: *const c_char,
     runtime_directory: *const c_char,
-    partition_manager: *const rpkg_rs::resource::partition_manager::PartitionManager,
+    partition_manager: *const PartitionManager,
     output_directory: *const c_char,
     output_type: *const c_char,
     log_callback: extern "C" fn(*const c_char),
@@ -96,12 +100,12 @@ pub extern "C" fn extract_resources_from_rpkg(
     runtime_folder: *const c_char,
     needed_hashes: *const *const c_char,
     needed_hashes_len: usize,
-    partition_manager: *const rpkg_rs::resource::partition_manager::PartitionManager,
+    partition_manager: *const PartitionManager,
     output_folder: *const c_char,
     resource_type: *const c_char,
     log_callback: extern "C" fn(*const c_char),
 ) {
-    let msg = std::ffi::CString::new("Extracting Resources from rpkg.".to_string()).unwrap();
+    let msg = CString::new("Extracting Resources from rpkg.".to_string()).unwrap();
     log_callback(msg.as_ptr());
     let runtime_folder_str = unsafe {
         CStr::from_ptr(runtime_folder)
@@ -130,7 +134,7 @@ pub extern "C" fn scan_packages(
     retail_folder: *const c_char,
     game_version: *const c_char,
     log_callback: extern "C" fn(*const c_char),
-) -> *mut rpkg_rs::resource::partition_manager::PartitionManager {
+) -> *mut PartitionManager {
     let retail_folder_str = unsafe { CStr::from_ptr(retail_folder).to_string_lossy().into_owned() };
     let game_version_str = unsafe { CStr::from_ptr(game_version).to_string_lossy().into_owned() };
 
@@ -148,7 +152,7 @@ pub extern "C" fn get_all_resources_hashes_by_type_from_rpkg_files(
     log_callback: extern "C" fn(*const c_char),
 ) -> *mut RustStringList {
     let resource_type_str = unsafe { CStr::from_ptr(resource_type).to_string_lossy().into_owned() };
-    let msg = std::ffi::CString::new(
+    let msg = CString::new(
         format!(
             "Scanning Rpkg files for all {} Resources.",
             resource_type_str
@@ -165,6 +169,159 @@ pub extern "C" fn get_all_resources_hashes_by_type_from_rpkg_files(
         log_callback,
     );
     create_string_list(resources)
+}
+
+#[no_mangle]
+pub extern "C" fn get_hash_list_from_file_or_repo(
+    output_folder: *const c_char,
+    log_callback: extern "C" fn(*const c_char),
+) -> *mut HashList {
+    let output_folder_str = unsafe { CStr::from_ptr(output_folder).to_string_lossy().into_owned() };
+
+    let hash_list =
+        RpkgExtraction::get_hash_list_from_file_or_repo(output_folder_str, log_callback);
+    Box::into_raw(Box::new(hash_list.unwrap()))
+}
+
+#[no_mangle]
+pub extern "C" fn get_all_referenced_hashes_by_hash_from_rpkg_files(
+    resource_hash: *const c_char,
+    partition_manager: *const PartitionManager,
+    log_callback: extern "C" fn(*const c_char),
+) -> *mut RustStringList {
+    // let msg = CString::new("Converting resource_hash_str in Rpkg files.".to_string()).unwrap();
+    // log_callback(msg.as_ptr());
+    let resource_hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy().into_owned() };
+    // let msg = CString::new("Converting partition_manager_ref in Rpkg files.".to_string()).unwrap();
+    // log_callback(msg.as_ptr());
+    let partition_manager_ref = unsafe { &*partition_manager };
+    // let msg = CString::new("Getting references in Rpkg files.".to_string()).unwrap();
+    // log_callback(msg.as_ptr());
+
+    let references = match RpkgExtraction::get_all_referenced_hashes_by_hash_from_rpkg_files(
+        resource_hash_str,
+        partition_manager_ref,
+        log_callback,
+    ) {
+        Ok(references) => Some(references),
+        Err(_) => return std::ptr::null_mut()
+
+    };
+    create_string_list(references.unwrap())
+}
+
+#[no_mangle]
+pub extern "C" fn get_mati_json_by_hash(
+    resource_hash: *const c_char,
+    partition_manager: *const PartitionManager,
+    log_callback: extern "C" fn(*const c_char),
+) -> *mut c_char {
+    let resource_hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy().into_owned() };
+    let partition_manager_ref = unsafe { &*partition_manager };
+    
+    match RpkgExtraction::get_mati_json_by_hash(resource_hash_str, partition_manager_ref, log_callback) {
+        Ok(json) => {
+            CString::new(json).unwrap_or_default().into_raw()
+        },
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn option_string_to_c_char(s: Option<String>) -> *mut c_char {
+    match s {
+        Some(str) => CString::new(str).map_or(std::ptr::null_mut(), |c| c.into_raw()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_version(list: *const HashList) -> u32 {
+    if list.is_null() {
+        return 0;
+    }
+    let list_ref = unsafe { &*list };
+    list_ref.version.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_all_hashes(list: *const HashList) -> *mut RustStringList {
+    if list.is_null() {
+        // Return an empty list if the hash list is null
+        return create_string_list(vec![]);
+    }
+    let list_ref = unsafe { &*list };
+    let map_guard = list_ref.entries.load();
+
+    let hashes: Vec<String> = map_guard
+        .keys()
+        .map(|rrid| rrid.to_string())
+        .collect();
+    create_string_list(hashes)
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_path_by_hash(
+    list: *const HashList,
+    resource_hash: *const c_char,
+) -> *mut c_char {
+    if list.is_null() || resource_hash.is_null() {
+        return std::ptr::null_mut();
+    }
+    let list_ref = unsafe { &*list };
+    let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
+
+    if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
+        if let Some(data) = list_ref.entries.load().get(&rrid) {
+            if let Some(path) = data.path.as_ref() {
+                return option_string_to_c_char(Some(String::from(path.clone())));
+            }
+        }
+    }
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_hint_by_hash(
+    list: *const HashList,
+    resource_hash: *const c_char,
+) -> *mut c_char {
+    if list.is_null() || resource_hash.is_null() {
+        return std::ptr::null_mut();
+    }
+    let list_ref = unsafe { &*list };
+    let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
+
+    if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
+        if let Some(data) = list_ref.entries.load().get(&rrid) {
+            if let Some(hint) = data.hint.as_ref() {
+                return option_string_to_c_char(Some(String::from(hint.clone())));
+            }
+        }
+    }
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn hash_list_get_resource_type_by_hash(
+    list: *const HashList,
+    resource_hash: *const c_char,
+) -> u32 {
+    // NOTE: This assumes `ResourceType` has an `Unknown` variant and is `#[repr(C)]`.
+    // If not, this function will need to return an i32/u32 instead.
+    const UNKNOWN_TYPE_CODE: u32 = 0;
+    if list.is_null() || resource_hash.is_null() {
+        return UNKNOWN_TYPE_CODE;
+    }
+    let list_ref = unsafe { &*list };
+    let hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy() };
+
+    if let Ok(rrid) = RuntimeID::from_str(&hash_str) {
+        if let Some(data) = list_ref.entries.load().get(&rrid) {
+            let bytes: [u8; 4] = data.resource_type.into();
+            return u32::from_be_bytes(bytes);
+        }
+    }
+    UNKNOWN_TYPE_CODE
 }
 
 #[repr(C)]
@@ -203,7 +360,43 @@ pub extern "C" fn get_string_from_list(list: *mut RustStringList, index: usize) 
 }
 
 #[no_mangle]
+pub extern "C" fn free_rust_string_list(ptr: *mut RustStringList) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let list = Box::from_raw(ptr);
+        // Reconstruct the Vec of pointers to drop it, then free each string.
+        let strings = Vec::from_raw_parts(list.entries, list.length, list.length);
+        for s_ptr in strings {
+            // This reconstructs the CString and allows its memory to be freed.
+            let _ = CString::from_raw(s_ptr);
+        }
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn free_entities_json(ptr: *mut EntitiesJson) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(ptr);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn free_string(ptr: *mut c_char) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = CString::from_raw(ptr);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn free_hash_list(ptr: *mut hitman_commons::hash_list::HashList) {
     if ptr.is_null() {
         return;
     }
