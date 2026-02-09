@@ -479,10 +479,10 @@ impl RpkgExtraction {
                     .iter()
                     .map(|(rrid, _)| rrid.to_hex_string())
                     .collect();
-                let msg = std::ffi::CString::new(
-                    format!("Got references for {} in Rpkg files.", resource_hash).to_string(),
-                )?;
-                log_callback(msg.as_ptr());
+                // let msg = std::ffi::CString::new(
+                //     format!("Got references for {} in Rpkg files.", resource_hash).to_string(),
+                // )?;
+                // log_callback(msg.as_ptr());
 
                 return Ok(result);
             } else {

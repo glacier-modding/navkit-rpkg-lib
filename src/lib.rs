@@ -189,14 +189,14 @@ pub extern "C" fn get_all_referenced_hashes_by_hash_from_rpkg_files(
     partition_manager: *const PartitionManager,
     log_callback: extern "C" fn(*const c_char),
 ) -> *mut RustStringList {
-    let msg = CString::new("Converting resource_hash_str in Rpkg files.".to_string()).unwrap();
-    log_callback(msg.as_ptr());
+    // let msg = CString::new("Converting resource_hash_str in Rpkg files.".to_string()).unwrap();
+    // log_callback(msg.as_ptr());
     let resource_hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy().into_owned() };
-    let msg = CString::new("Converting partition_manager_ref in Rpkg files.".to_string()).unwrap();
-    log_callback(msg.as_ptr());
+    // let msg = CString::new("Converting partition_manager_ref in Rpkg files.".to_string()).unwrap();
+    // log_callback(msg.as_ptr());
     let partition_manager_ref = unsafe { &*partition_manager };
-    let msg = CString::new("Getting references in Rpkg files.".to_string()).unwrap();
-    log_callback(msg.as_ptr());
+    // let msg = CString::new("Getting references in Rpkg files.".to_string()).unwrap();
+    // log_callback(msg.as_ptr());
 
     let references = match RpkgExtraction::get_all_referenced_hashes_by_hash_from_rpkg_files(
         resource_hash_str,
