@@ -30,6 +30,10 @@ glacier-base = "0.2.1"
 
 [dependencies.glacier-commons]
 git = "https://github.com/atampy25/glacier-commons"
+features = ["serde", "specta", "rpkg-rs-1", "glacier-texture", "tonytools", "hash-list"]
+
+[target.'cfg(windows)'.dependencies.glacier-commons]
+git = "https://github.com/atampy25/glacier-commons"
 features = ["serde", "specta", "rpkg-rs-1", "glacier-texture", "tonytools", "hash-list", "game-detection"]
 
 [dependencies.glacier-formats]

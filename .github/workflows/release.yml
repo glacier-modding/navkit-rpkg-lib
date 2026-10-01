@@ -1,0 +1,247 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} (${{ matrix.config }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+        config: [debug, release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build ${{ matrix.config }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.config }}" == "release" ]; then
+            cargo build --release
+          else
+            cargo build
+          fi
+
+      - name: Prepare Windows artifacts (debug)
+        if: runner.os == 'Windows' && matrix.config == 'debug'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/windows-debug
+          Copy-Item target/debug/navkit_rpkg_lib.dll artifacts/windows-debug/
+          Copy-Item target/debug/navkit_rpkg_lib.dll.lib artifacts/windows-debug/
+          Copy-Item target/debug/navkit_rpkg_lib.pdb artifacts/windows-debug/
+
+      - name: Prepare Windows artifacts (release)
+        if: runner.os == 'Windows' && matrix.config == 'release'
+        shell: pwsh
+        run: |
+          cargo install cbindgen
+          cbindgen --config cbindgen.toml --crate navkit-rpkg-lib --output navkit-rpkg-lib.h
+          New-Item -ItemType Directory -Force -Path artifacts/windows-release
+          Copy-Item target/release/navkit_rpkg_lib.dll artifacts/windows-release/
+          Copy-Item target/release/navkit_rpkg_lib.dll.lib artifacts/windows-release/
+          Copy-Item target/release/navkit_rpkg_lib.pdb artifacts/windows-release/ -ErrorAction SilentlyContinue
+          Copy-Item navkit-rpkg-lib.h artifacts/windows-release/
+
+      - name: Prepare macOS artifacts (debug)
+        if: runner.os == 'macOS' && matrix.config == 'debug'
+        run: |
+          mkdir -p artifacts/macos-debug
+          cp target/debug/libnavkit_rpkg_lib.dylib artifacts/macos-debug/
+
+      - name: Prepare macOS artifacts (release)
+        if: runner.os == 'macOS' && matrix.config == 'release'
+        run: |
+          cargo install cbindgen
+          cbindgen --config cbindgen.toml --crate navkit-rpkg-lib --output navkit-rpkg-lib.h
+          mkdir -p artifacts/macos-release
+          cp target/release/libnavkit_rpkg_lib.dylib artifacts/macos-release/
+          cp navkit-rpkg-lib.h artifacts/macos-release/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: navkit-rpkg-lib-${{ runner.os }}-${{ matrix.config }}
+          path: artifacts/
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install semantic-release
+        run: |
+          npm install -g semantic-release@24 @semantic-release/changelog@6 @semantic-release/git@10 @semantic-release/github@11 conventional-changelog-conventionalcommits@8
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          # Windows debug
+          if [ -d "artifacts/navkit-rpkg-lib-Windows-debug/windows-debug" ]; then
+            cd artifacts/navkit-rpkg-lib-Windows-debug/windows-debug
+            zip -r ../../../release-assets/navkit-rpkg-lib-windows-debug.zip .
+            cd ../../..
+          fi
+
+          # Windows release
+          if [ -d "artifacts/navkit-rpkg-lib-Windows-release/windows-release" ]; then
+            cd artifacts/navkit-rpkg-lib-Windows-release/windows-release
+            zip -r ../../../release-assets/navkit-rpkg-lib-windows-release.zip .
+            cd ../../..
+          fi
+
+          # macOS debug
+          if [ -d "artifacts/navkit-rpkg-lib-macOS-debug/macos-debug" ]; then
+            cd artifacts/navkit-rpkg-lib-macOS-debug/macos-debug
+            tar czf ../../../release-assets/navkit-rpkg-lib-macos-debug.tar.gz .
+            cd ../../..
+          fi
+
+          # macOS release
+          if [ -d "artifacts/navkit-rpkg-lib-macOS-release/macos-release" ]; then
+            cd artifacts/navkit-rpkg-lib-macOS-release/macos-release
+            tar czf ../../../release-assets/navkit-rpkg-lib-macos-release.tar.gz .
+            cd ../../..
+          fi
+
+      - name: Create .releaserc.json
+        run: |
+          cat > .releaserc.json << 'EOF'
+          {
+            "branches": ["main"],
+            "plugins": [
+              [
+                "@semantic-release/commit-analyzer",
+                {
+                  "preset": "conventionalcommits",
+                  "releaseRules": [
+                    {"breaking": true, "release": "major"},
+                    {"type": "feat", "release": "minor"},
+                    {"type": "fix", "release": "patch"},
+                    {"type": "perf", "release": "patch"},
+                    {"type": "revert", "release": "patch"},
+                    {"type": "docs", "release": "patch"},
+                    {"type": "style", "release": "patch"},
+                    {"type": "refactor", "release": "patch"},
+                    {"type": "test", "release": "patch"},
+                    {"type": "build", "release": "patch"},
+                    {"type": "ci", "release": "patch"},
+                    {"type": "chore", "release": "patch"}
+                  ]
+                }
+              ],
+              [
+                "@semantic-release/release-notes-generator",
+                {
+                  "preset": "conventionalcommits",
+                  "presetConfig": {
+                    "types": [
+                      {"type": "feat", "section": "Features"},
+                      {"type": "fix", "section": "Bug Fixes"},
+                      {"type": "perf", "section": "Performance Improvements"},
+                      {"type": "revert", "section": "Reverts"},
+                      {"type": "docs", "section": "Documentation"},
+                      {"type": "style", "section": "Styles"},
+                      {"type": "refactor", "section": "Code Refactoring"},
+                      {"type": "test", "section": "Tests"},
+                      {"type": "build", "section": "Build System"},
+                      {"type": "ci", "section": "Continuous Integration"}
+                    ]
+                  }
+                }
+              ],
+              "@semantic-release/changelog",
+              [
+                "@semantic-release/github",
+                {
+                  "assets": [
+                    {"path": "release-assets/navkit-rpkg-lib-windows-debug.zip", "label": "Windows Debug Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-windows-release.zip", "label": "Windows Release Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-macos-debug.tar.gz", "label": "macOS Debug Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-macos-release.tar.gz", "label": "macOS Release Build"}
+                  ]
+                }
+              ],
+              [
+                "@semantic-release/git",
+                {
+                  "assets": ["CHANGELOG.md", "Cargo.toml"],
+                  "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+                }
+              ]
+            ]
+          }
+          EOF
+
+      - name: Update Cargo.toml version
+        run: |
+          cat > update-version.js << 'EOF'
+          const fs = require('fs');
+
+          module.exports = {
+            prepare: async (pluginConfig, context) => {
+              const { nextRelease } = context;
+              const version = nextRelease.version;
+
+              // Update Cargo.toml
+              const cargoToml = fs.readFileSync('Cargo.toml', 'utf8');
+              const updatedCargoToml = cargoToml.replace(
+                /^version = ".*"$/m,
+                `version = "${version}"`
+              );
+              fs.writeFileSync('Cargo.toml', updatedCargoToml);
+
+              console.log(`Updated Cargo.toml to version ${version}`);
+            }
+          };
+          EOF
+
+      - name: Update .releaserc.json with version updater
+        run: |
+          node -e "
+          const config = require('./.releaserc.json');
+          const prepareIndex = config.plugins.findIndex(p =>
+            Array.isArray(p) && p[0] === '@semantic-release/git'
+          );
+          config.plugins.splice(prepareIndex, 0, './update-version.js');
+          require('fs').writeFileSync('.releaserc.json', JSON.stringify(config, null, 2));
+          "
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
