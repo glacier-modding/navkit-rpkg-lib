@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.1.0...v1.1.1) (2026-10-05)
+
+### Bug Fixes
+
+* Use universal macOS binary with conventional filename ([057741e](https://github.com/glacier-modding/navkit-rpkg-lib/commit/057741e5d2931c20ebaadcdb575c7c6574aed40f))
+
 ## [1.1.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.0.0...v1.1.0) (2026-10-04)
 
 ### Features
