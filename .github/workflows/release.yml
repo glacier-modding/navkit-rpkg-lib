@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Build ${{ matrix.os }} (${{ matrix.config }})${{ matrix.arch && format(' - {0}', matrix.arch) || '' }}
+    name: Build ${{ matrix.os }} (${{ matrix.config }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -18,16 +18,8 @@ jobs:
             config: release
           - os: macos-latest
             config: debug
-            arch: arm64
           - os: macos-latest
             config: release
-            arch: arm64
-          - os: macos-latest
-            config: debug
-            arch: x86_64
-          - os: macos-latest
-            config: release
-            arch: x86_64
 
     steps:
       - name: Checkout
@@ -39,23 +31,23 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Add x86_64 target for macOS cross-compilation
-        if: runner.os == 'macOS' && matrix.arch == 'x86_64'
+      - name: Add x86_64 target for macOS universal binary
+        if: runner.os == 'macOS'
         run: rustup target add x86_64-apple-darwin
 
       - name: Build ${{ matrix.config }}
         shell: bash
         run: |
-          if [ "$RUNNER_OS" == "macOS" ] && [ "${{ matrix.arch }}" == "x86_64" ]; then
-            TARGET="--target x86_64-apple-darwin"
-          else
-            TARGET=""
-          fi
-
           if [ "${{ matrix.config }}" == "release" ]; then
-            cargo build --release $TARGET
+            cargo build --release
+            if [ "$RUNNER_OS" == "macOS" ]; then
+              cargo build --release --target x86_64-apple-darwin
+            fi
           else
-            cargo build $TARGET
+            cargo build
+            if [ "$RUNNER_OS" == "macOS" ]; then
+              cargo build --target x86_64-apple-darwin
+            fi
           fi
 
       - name: Prepare Windows artifacts (debug)
@@ -82,30 +74,28 @@ jobs:
       - name: Prepare macOS artifacts (debug)
         if: runner.os == 'macOS' && matrix.config == 'debug'
         run: |
-          mkdir -p artifacts/macos-${{ matrix.arch }}-debug
-          if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            cp target/x86_64-apple-darwin/debug/libnavkit_rpkg_lib.dylib artifacts/macos-${{ matrix.arch }}-debug/
-          else
-            cp target/debug/libnavkit_rpkg_lib.dylib artifacts/macos-${{ matrix.arch }}-debug/
-          fi
+          mkdir -p artifacts/macos-debug
+          lipo -create \
+            target/debug/libnavkit_rpkg_lib.dylib \
+            target/x86_64-apple-darwin/debug/libnavkit_rpkg_lib.dylib \
+            -output artifacts/macos-debug/libnavkit_rpkg_lib.dylib
 
       - name: Prepare macOS artifacts (release)
         if: runner.os == 'macOS' && matrix.config == 'release'
         run: |
           cargo install cbindgen
           cbindgen --config cbindgen.toml --crate navkit-rpkg-lib --output navkit-rpkg-lib.h
-          mkdir -p artifacts/macos-${{ matrix.arch }}-release
-          if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            cp target/x86_64-apple-darwin/release/libnavkit_rpkg_lib.dylib artifacts/macos-${{ matrix.arch }}-release/
-          else
-            cp target/release/libnavkit_rpkg_lib.dylib artifacts/macos-${{ matrix.arch }}-release/
-          fi
-          cp navkit-rpkg-lib.h artifacts/macos-${{ matrix.arch }}-release/
+          mkdir -p artifacts/macos-release
+          lipo -create \
+            target/release/libnavkit_rpkg_lib.dylib \
+            target/x86_64-apple-darwin/release/libnavkit_rpkg_lib.dylib \
+            -output artifacts/macos-release/libnavkit_rpkg_lib.dylib
+          cp navkit-rpkg-lib.h artifacts/macos-release/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: navkit-rpkg-lib-${{ runner.os }}${{ matrix.arch && format('-{0}', matrix.arch) || '' }}-${{ matrix.config }}
+          name: navkit-rpkg-lib-${{ runner.os }}-${{ matrix.config }}
           path: artifacts/
 
   release:
@@ -157,31 +147,17 @@ jobs:
             cd ../../..
           fi
 
-          # macOS ARM64 debug
-          if [ -d "artifacts/navkit-rpkg-lib-macOS-arm64-debug/macos-arm64-debug" ]; then
-            cd artifacts/navkit-rpkg-lib-macOS-arm64-debug/macos-arm64-debug
-            tar czf ../../../release-assets/navkit-rpkg-lib-macos-arm64-debug.tar.gz .
+          # macOS debug (universal binary)
+          if [ -d "artifacts/navkit-rpkg-lib-macOS-debug/macos-debug" ]; then
+            cd artifacts/navkit-rpkg-lib-macOS-debug/macos-debug
+            tar czf ../../../release-assets/navkit-rpkg-lib-macos-debug.tar.gz .
             cd ../../..
           fi
 
-          # macOS ARM64 release
-          if [ -d "artifacts/navkit-rpkg-lib-macOS-arm64-release/macos-arm64-release" ]; then
-            cd artifacts/navkit-rpkg-lib-macOS-arm64-release/macos-arm64-release
-            tar czf ../../../release-assets/navkit-rpkg-lib-macos-arm64-release.tar.gz .
-            cd ../../..
-          fi
-
-          # macOS x86_64 debug
-          if [ -d "artifacts/navkit-rpkg-lib-macOS-x86_64-debug/macos-x86_64-debug" ]; then
-            cd artifacts/navkit-rpkg-lib-macOS-x86_64-debug/macos-x86_64-debug
-            tar czf ../../../release-assets/navkit-rpkg-lib-macos-x86_64-debug.tar.gz .
-            cd ../../..
-          fi
-
-          # macOS x86_64 release
-          if [ -d "artifacts/navkit-rpkg-lib-macOS-x86_64-release/macos-x86_64-release" ]; then
-            cd artifacts/navkit-rpkg-lib-macOS-x86_64-release/macos-x86_64-release
-            tar czf ../../../release-assets/navkit-rpkg-lib-macos-x86_64-release.tar.gz .
+          # macOS release (universal binary)
+          if [ -d "artifacts/navkit-rpkg-lib-macOS-release/macos-release" ]; then
+            cd artifacts/navkit-rpkg-lib-macOS-release/macos-release
+            tar czf ../../../release-assets/navkit-rpkg-lib-macos-release.tar.gz .
             cd ../../..
           fi
 
@@ -238,10 +214,8 @@ jobs:
                   "assets": [
                     {"path": "release-assets/navkit-rpkg-lib-windows-debug.zip", "label": "Windows Debug Build"},
                     {"path": "release-assets/navkit-rpkg-lib-windows-release.zip", "label": "Windows Release Build"},
-                    {"path": "release-assets/navkit-rpkg-lib-macos-arm64-debug.tar.gz", "label": "macOS ARM64 Debug Build"},
-                    {"path": "release-assets/navkit-rpkg-lib-macos-arm64-release.tar.gz", "label": "macOS ARM64 Release Build"},
-                    {"path": "release-assets/navkit-rpkg-lib-macos-x86_64-debug.tar.gz", "label": "macOS x86_64 Debug Build"},
-                    {"path": "release-assets/navkit-rpkg-lib-macos-x86_64-release.tar.gz", "label": "macOS x86_64 Release Build"}
+                    {"path": "release-assets/navkit-rpkg-lib-macos-debug.tar.gz", "label": "macOS Universal Debug Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-macos-release.tar.gz", "label": "macOS Universal Release Build"}
                   ]
                 }
               ],
