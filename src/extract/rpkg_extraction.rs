@@ -86,6 +86,7 @@ impl RpkgExtraction {
                     let output_folder_path =
                         PathBuf::from(String::from(output_folder_ref));
                     let mut resource_packages: HashMap<String, ResourcePackage> = HashMap::new();
+                    let mut chunk_failed = false;
 
                     // let mut skipped = 0;
                     // let mut extracted = 0;
@@ -95,7 +96,7 @@ impl RpkgExtraction {
                     //     chunk_i, chunk.len())
                     // ).unwrap();
                     // log_callback(msg.as_ptr());
-                    for hash in chunk {
+                    'resources: for hash in chunk {
                         // let msg = std::ffi::CString::new(format!(
                         //     "Thread {}: Extracting hash {}.",
                         //     chunk_i, hash)
@@ -113,7 +114,8 @@ impl RpkgExtraction {
                                     ))
                                     .unwrap();
                                     log_callback(msg.as_ptr());
-                                    return Err(());
+                                    chunk_failed = true;
+                                    continue 'resources;
                                 }
                             };
                         let resource_info = match
@@ -123,7 +125,8 @@ impl RpkgExtraction {
                                     let msg = std::ffi::CString::new(format!("Thread {}: Error getting resource info for hash: {}", chunk_i, hash.as_str()))
                                     .unwrap();
                                     log_callback(msg.as_ptr());
-                                    return Err(());
+                                    chunk_failed = true;
+                                    continue 'resources;
                                 }
                         };
                         let last_partition = resource_info.last_partition;
@@ -153,7 +156,8 @@ impl RpkgExtraction {
                                         let msg = std::ffi::CString::new(format!("Thread {}: Failed to parse resource package {}: {}", chunk_i, package_path_buf.to_str().unwrap(), e))
                                         .unwrap();
                                         log_callback(msg.as_ptr());
-                                        return Err(());
+                                        chunk_failed = true;
+                                        continue 'resources;
                                     }
                                 }
                             }
@@ -164,7 +168,8 @@ impl RpkgExtraction {
                                 let msg = std::ffi::CString::new(format!("Thread {} Failed to extract resource {}: {}", chunk_i, hash, e))
                                 .unwrap();
                                 log_callback(msg.as_ptr());
-                                return Err(());
+                                chunk_failed = true;
+                                continue 'resources;
                             }
                         };
 
@@ -178,15 +183,39 @@ impl RpkgExtraction {
                         } else if resource_type_ref == "AIRG" {
                             file_extension = ".AIRG".to_string();
                         } else if resource_type_ref == "TEXT" {
-                            let mut texture = match TextureMap::from_memory(&resource_contents, GlacierGame::H3.into()) {
-                                Ok(result) => result,
-                                Err(e) => {
+                            // Try different game versions until one works
+                            // H1 (HM2016) first since it's most likely for older maps
+                            let game_versions = [
+                                GlacierGame::H1,
+                                GlacierGame::H2,
+                                GlacierGame::H3,
+                            ];
+
+                            let mut texture = None;
+                            let mut last_error = String::new();
+
+                            for game_version in &game_versions {
+                                match TextureMap::from_memory(&resource_contents, (*game_version).into()) {
+                                    Ok(result) => {
+                                        texture = Some(result);
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        last_error = e.to_string();
+                                    }
+                                }
+                            }
+
+                            let mut texture = match texture {
+                                Some(t) => t,
+                                None => {
                                     let msg = std::ffi::CString::new(format!(
                                         "Thread {}: Error building texture for hash {}: {}.",
-                                        chunk_i, hash, e.to_string())
+                                        chunk_i, hash, last_error)
                                     ).unwrap();
                                     log_callback(msg.as_ptr());
-                                    return Err(());
+                                    chunk_failed = true;
+                                    continue 'resources;
                                 }
                             };
 
@@ -209,18 +238,36 @@ impl RpkgExtraction {
                                                         chunk_i, hash, e.to_string())
                                                     ).unwrap();
                                                     log_callback(msg.as_ptr());
-                                                    return Err(());
+                                                    chunk_failed = true;
+                                                    continue 'resources;
                                                 }
                                             };
-                                            let mipblock = match MipblockData::from_memory(&texd_data, GlacierGame::H3.into()) {
-                                                Ok(result) => result,
-                                                Err(e) => {
+                                            // Try different game versions until one works
+                                            let mut mipblock = None;
+                                            let mut last_mip_error = String::new();
+
+                                            for game_version in &game_versions {
+                                                match MipblockData::from_memory(&texd_data, (*game_version).into()) {
+                                                    Ok(result) => {
+                                                        mipblock = Some(result);
+                                                        break;
+                                                    }
+                                                    Err(e) => {
+                                                        last_mip_error = e.to_string();
+                                                    }
+                                                }
+                                            }
+
+                                            let mipblock = match mipblock {
+                                                Some(m) => m,
+                                                None => {
                                                     let msg = std::ffi::CString::new(format!(
                                                         "Thread {}: Error building MipblockData for hash {}: {}.",
-                                                        chunk_i, hash, e.to_string())
+                                                        chunk_i, hash, last_mip_error)
                                                     ).unwrap();
                                                     log_callback(msg.as_ptr());
-                                                    return Err(());
+                                                    chunk_failed = true;
+                                                    continue 'resources;
                                                 }
                                             };
                                             texture.set_mipblock1(mipblock);
@@ -236,7 +283,8 @@ impl RpkgExtraction {
                                     let msg = std::ffi::CString::new(format!("Thread {}: Failed to get references for {}: {}", chunk_i, hash, e))
                                         .unwrap();
                                     log_callback(msg.as_ptr());
-                                    return Err(());
+                                    chunk_failed = true;
+                                    continue 'resources;
                                 }
                             };
                             resource_contents = match convert::create_tga(&texture)  {
@@ -247,14 +295,16 @@ impl RpkgExtraction {
                                         chunk_i, hash, e.to_string())
                                     ).unwrap();
                                     log_callback(msg.as_ptr());
-                                    return Err(());
+                                    chunk_failed = true;
+                                    continue 'resources;
                                 }
                             };
                             file_extension = ".TGA".to_string();
                         } else {
                             let msg = std::ffi::CString::new(format!("Invalid resource type: {}", resource_type_ref)).unwrap();
                             log_callback(msg.as_ptr());
-                            return Err(());
+                            chunk_failed = true;
+                            continue 'resources;
                         }
                         let resource_file_path_buf =
                             output_folder_path.join(hash.clone() + &file_extension);
@@ -267,7 +317,8 @@ impl RpkgExtraction {
                                 std::ffi::CString::new(format!("File failed to be written: {}", e))
                                     .unwrap();
                             log_callback(msg.as_ptr());
-                            return Err(());
+                            chunk_failed = true;
+                            continue 'resources;
                         }
                     }
                     // let msg = std::ffi::CString::new(format!(
@@ -276,7 +327,11 @@ impl RpkgExtraction {
                     // ).unwrap();
                     // log_callback(msg.as_ptr());
 
-                    Ok(())
+                    if chunk_failed {
+                        Err(())
+                    } else {
+                        Ok(())
+                    }
                 }));
             }
 
