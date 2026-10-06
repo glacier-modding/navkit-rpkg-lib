@@ -1,3 +1,9 @@
+## [1.1.2](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.1.1...v1.1.2) (2026-10-06)
+
+### Bug Fixes
+
+* Check each game version when loading textures, and finish textures from a chunk if one fails ([84f7896](https://github.com/glacier-modding/navkit-rpkg-lib/commit/84f78965421fabb2cb824eed303f09730ca0e24a))
+
 ## [1.1.1](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.1.0...v1.1.1) (2026-10-05)
 
 ### Bug Fixes
