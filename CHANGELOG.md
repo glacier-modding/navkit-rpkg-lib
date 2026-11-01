@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.1.2...v1.2.0) (2026-11-01)
+
+### Features
+
+* Add option to extract CRMD files from RPKG ([e3ce9d6](https://github.com/glacier-modding/navkit-rpkg-lib/commit/e3ce9d6f3c971b08a80304980f9efa026bfecad2))
+
 ## [1.1.2](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.1.1...v1.1.2) (2026-10-06)
 
 ### Bug Fixes
