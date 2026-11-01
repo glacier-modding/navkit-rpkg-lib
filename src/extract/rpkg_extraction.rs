@@ -182,6 +182,8 @@ impl RpkgExtraction {
                             file_extension = ".NAVP".to_string();
                         } else if resource_type_ref == "AIRG" {
                             file_extension = ".AIRG".to_string();
+                        } else if resource_type_ref == "CRMD" {
+                            file_extension = ".CRMD".to_string();
                         } else if resource_type_ref == "TEXT" {
                             // Try different game versions until one works
                             // H1 (HM2016) first since it's most likely for older maps
