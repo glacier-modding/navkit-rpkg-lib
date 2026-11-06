@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.2.0...v1.3.0) (2026-11-06)
+
+### Features
+
+* Add linux to build and release workflows ([746876e](https://github.com/glacier-modding/navkit-rpkg-lib/commit/746876e2b1a71f898ad4553f1388cf35031060ac))
+
 ## [1.2.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.1.2...v1.2.0) (2026-11-01)
 
 ### Features
