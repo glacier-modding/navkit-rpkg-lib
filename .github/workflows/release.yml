@@ -98,10 +98,77 @@ jobs:
           name: navkit-rpkg-lib-${{ runner.os }}-${{ matrix.config }}
           path: artifacts/
 
+  build-linux:
+    name: Build Linux ${{ matrix.arch }} (${{ matrix.config }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            platform: linux/amd64
+            image: quay.io/pypa/manylinux2014_x86_64
+            config: debug
+          - arch: x86_64
+            platform: linux/amd64
+            image: quay.io/pypa/manylinux2014_x86_64
+            config: release
+          - arch: aarch64
+            platform: linux/arm64
+            image: quay.io/pypa/manylinux2014_aarch64
+            config: debug
+          - arch: aarch64
+            platform: linux/arm64
+            image: quay.io/pypa/manylinux2014_aarch64
+            config: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up QEMU
+        if: matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build Linux ${{ matrix.config }}
+        env:
+          BUILD_CONFIG: ${{ matrix.config }}
+          MANYLINUX_IMAGE: ${{ matrix.image }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          docker run --rm --platform "$PLATFORM" \
+            -e BUILD_CONFIG="$BUILD_CONFIG" \
+            -v "$GITHUB_WORKSPACE:/io" -w /io \
+            "$MANYLINUX_IMAGE" /bin/bash -lc '
+              set -euo pipefail
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+              source "$HOME/.cargo/env"
+              rustup toolchain install nightly --profile minimal
+              if [ "$BUILD_CONFIG" = "release" ]; then
+                cargo build --locked --release
+                mkdir -p build
+                cp target/release/libnavkit_rpkg_lib.so build/libnavkit_rpkg_lib.so
+              else
+                cargo build --locked
+                mkdir -p build
+                cp target/debug/libnavkit_rpkg_lib.so build/libnavkit_rpkg_lib.so
+              fi
+            '
+
+      - name: Upload Linux ${{ matrix.config }} artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: navkit-rpkg-lib-linux-${{ matrix.arch }}-${{ matrix.config }}
+          path: build/libnavkit_rpkg_lib.so
+          if-no-files-found: error
+
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, build-linux]
     if: github.ref == 'refs/heads/main'
 
     permissions:
@@ -161,6 +228,17 @@ jobs:
             cd ../../..
           fi
 
+          # Linux debug and release libraries, separated by architecture
+          for config in debug release; do
+            for arch in x86_64 aarch64; do
+              artifact="artifacts/navkit-rpkg-lib-linux-${arch}-${config}"
+              if [ -f "${artifact}/libnavkit_rpkg_lib.so" ]; then
+                tar czf "release-assets/navkit-rpkg-lib-linux-${arch}-${config}.tar.gz" \
+                  -C "$artifact" libnavkit_rpkg_lib.so
+              fi
+            done
+          done
+
       - name: Create .releaserc.json
         run: |
           cat > .releaserc.json << 'EOF'
@@ -215,7 +293,11 @@ jobs:
                     {"path": "release-assets/navkit-rpkg-lib-windows-debug.zip", "label": "Windows Debug Build"},
                     {"path": "release-assets/navkit-rpkg-lib-windows-release.zip", "label": "Windows Release Build"},
                     {"path": "release-assets/navkit-rpkg-lib-macos-debug.tar.gz", "label": "macOS Universal Debug Build"},
-                    {"path": "release-assets/navkit-rpkg-lib-macos-release.tar.gz", "label": "macOS Universal Release Build"}
+                    {"path": "release-assets/navkit-rpkg-lib-macos-release.tar.gz", "label": "macOS Universal Release Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-linux-x86_64-debug.tar.gz", "label": "Linux x86_64 Debug Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-linux-x86_64-release.tar.gz", "label": "Linux x86_64 Release Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-linux-aarch64-debug.tar.gz", "label": "Linux aarch64 Debug Build"},
+                    {"path": "release-assets/navkit-rpkg-lib-linux-aarch64-release.tar.gz", "label": "Linux aarch64 Release Build"}
                   ]
                 }
               ],
