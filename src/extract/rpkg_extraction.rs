@@ -24,6 +24,18 @@ use std::{
 
 pub struct RpkgExtraction;
 
+fn output_file_extension(resource_type: &str) -> Option<&'static str> {
+    match resource_type {
+        "ALOC" => Some(".ALOC"),
+        "PRIM" => Some(".PRIM"),
+        "NAVP" => Some(".NAVP"),
+        "AIRG" => Some(".AIRG"),
+        "CRMD" => Some(".CRMD"),
+        "GFXF" => Some(".swf"),
+        _ => None,
+    }
+}
+
 impl RpkgExtraction {
     pub const HASH_LIST_VERSION_ENDPOINT: &str =
         "https://github.com/glacier-modding/Hitman-Hashes/releases/latest/download/version";
@@ -175,17 +187,7 @@ impl RpkgExtraction {
                         };
 
                         let file_extension: String;
-                        if resource_type_ref == "ALOC" {
-                            file_extension = ".ALOC".to_string();
-                        } else if resource_type_ref == "PRIM" {
-                            file_extension = ".PRIM".to_string();
-                        } else if resource_type_ref == "NAVP" {
-                            file_extension = ".NAVP".to_string();
-                        } else if resource_type_ref == "AIRG" {
-                            file_extension = ".AIRG".to_string();
-                        } else if resource_type_ref == "CRMD" {
-                            file_extension = ".CRMD".to_string();
-                        } else if resource_type_ref == "TEXT" {
+                        if resource_type_ref == "TEXT" {
                             // Try different game versions until one works
                             // H1 (HM2016) first since it's most likely for older maps
                             let game_versions = [
@@ -303,6 +305,8 @@ impl RpkgExtraction {
                                 }
                             };
                             file_extension = ".TGA".to_string();
+                        } else if let Some(extension) = output_file_extension(resource_type_ref) {
+                            file_extension = extension.to_string();
                         } else {
                             let msg = std::ffi::CString::new(format!("Invalid resource type: {}", resource_type_ref)).unwrap();
                             log_callback(msg.as_ptr());
@@ -324,6 +328,7 @@ impl RpkgExtraction {
                             continue 'resources;
                         }
                     }
+
                     // let msg = std::ffi::CString::new(format!(
                     //     "Thread {}: Extracted {} resources. Skipped extraction of {} resources that are newer than their rpkg file.",
                     //     chunk_i, extracted, skipped)
@@ -586,5 +591,29 @@ impl RpkgExtraction {
         .unwrap();
         log_callback(msg.as_ptr());
         resource_hashes.into_iter().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::output_file_extension;
+
+    #[test]
+    fn gfxf_resources_are_written_as_swf_files() {
+        assert_eq!(output_file_extension("GFXF"), Some(".swf"));
+    }
+
+    #[test]
+    fn existing_resource_extensions_are_preserved() {
+        assert_eq!(output_file_extension("ALOC"), Some(".ALOC"));
+        assert_eq!(output_file_extension("PRIM"), Some(".PRIM"));
+        assert_eq!(output_file_extension("NAVP"), Some(".NAVP"));
+        assert_eq!(output_file_extension("AIRG"), Some(".AIRG"));
+        assert_eq!(output_file_extension("CRMD"), Some(".CRMD"));
+    }
+
+    #[test]
+    fn unsupported_resource_types_have_no_output_extension() {
+        assert_eq!(output_file_extension("XXXX"), None);
     }
 }

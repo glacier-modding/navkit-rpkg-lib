@@ -10,6 +10,7 @@
 
 - Parse a NavKit scene file and extract mesh files from the RPKG files for a Hitman scene
 - Extract specific resources by their hash from the RPKG files
+- Extract GFXF resources as decoded `.swf` files using `extract_resources_from_rpkg`
 - Get all hashes of a given type from the RPKG files
 
 ## Contributions
