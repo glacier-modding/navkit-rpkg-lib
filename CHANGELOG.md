@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.4.0...v1.5.0) (2026-11-16)
+
+### Features
+
+* Add support for extracting gfxf ([136fc73](https://github.com/glacier-modding/navkit-rpkg-lib/commit/136fc7391f4304717721b47c268ed009b8d3b0ba))
+
 ## [1.4.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.3.0...v1.4.0) (2026-11-16)
 
 ### Features
