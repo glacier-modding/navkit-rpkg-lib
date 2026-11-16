@@ -1,3 +1,4 @@
+use crate::package::game_path::{find_entry_ignoring_case, resolve_game_path};
 use anyhow::Context;
 use glacier_base::encryption::xtea::XteaConfig;
 use glacier_ini::IniFileSystem;
@@ -36,7 +37,7 @@ impl PackageScan {
     ) -> Option<PartitionManager> {
         let mut package_manager: PartitionManager;
         let retail_path = PathBuf::from(&retail_folder);
-        let thumbs_path = retail_path.join("thumbs.dat");
+        let thumbs_path = find_entry_ignoring_case(&retail_path, "thumbs.dat");
         let thumbs = match IniFileSystem::from_path(&thumbs_path.as_path(), XteaConfig::Woa) {
             Ok(c) => c,
             Err(e) => {
@@ -53,10 +54,10 @@ impl PackageScan {
             app_options.options().get("PROJECT_PATH"),
             app_options.options().get("RUNTIME_PATH"),
         ) {
-            runtime_path = PathBuf::from(format!(
-                "{}\\{proj_path}\\{relative_runtime_path}",
-                retail_path.display()
-            ));
+            runtime_path = resolve_game_path(
+                &retail_path,
+                &format!("{proj_path}\\{relative_runtime_path}"),
+            );
         } else {
             let msg = std::ffi::CString::new(
                 format!("Missing required properties inside thumbs.dat:\n PROJECT_PATH: {}\n RUNTIME_PATH: {}",
@@ -73,12 +74,32 @@ impl PackageScan {
         .unwrap();
         log_callback(msg.as_ptr());
 
-        let partitions = PackageDefinitionSource::HM3(
-            fs::read(runtime_path.join("packagedefinition.txt")).unwrap(),
-        )
-        .read()
-        .context("Couldn't read packagedefinition")
-        .unwrap();
+        let package_definition_path =
+            find_entry_ignoring_case(&runtime_path, "packagedefinition.txt");
+        let package_defs_bytes = match fs::read(&package_definition_path) {
+            Ok(c) => c,
+            Err(e) => {
+                let msg = std::ffi::CString::new(format!(
+                    "Error reading package definition file {:?}: {}",
+                    package_definition_path, e
+                ))
+                .unwrap();
+                log_callback(msg.as_ptr());
+                return None;
+            }
+        };
+
+        let partitions = match PackageDefinitionSource::HM3(package_defs_bytes.clone())
+            .read()
+            .context("Couldn't read packagedefinition")
+        {
+            Ok(partitions) => partitions,
+            Err(e) => {
+                let msg = std::ffi::CString::new(format!("{:#}", e)).unwrap();
+                log_callback(msg.as_ptr());
+                return None;
+            }
+        };
         package_manager = PartitionManager::new(
             runtime_path.clone(),
             &PackageDefinitionSource::Custom(partitions),
@@ -106,20 +127,6 @@ impl PackageScan {
                 log_callback(msg.as_ptr());
             }
         };
-
-        let package_defs_bytes =
-            match fs::read(runtime_path.join("packagedefinition.txt").as_path()) {
-                Ok(c) => c,
-                Err(e) => {
-                    let msg = std::ffi::CString::new(format!(
-                        "Error reading package definition file: {}",
-                        e
-                    ))
-                    .unwrap();
-                    log_callback(msg.as_ptr());
-                    return None;
-                }
-            };
 
         let mut package_defs = match match game_version.as_str() {
             "HM3" => PackageDefinitionSource::HM3(package_defs_bytes).read(),

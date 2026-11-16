@@ -1,3 +1,4 @@
+use crate::package::game_path::find_entry_ignoring_case;
 use crate::{json_serde::entities_json::EntitiesJson, package::package_scan::PackageScan};
 use anyhow::{bail, Context};
 use glacier_commons::game::GlacierGame;
@@ -130,7 +131,7 @@ impl RpkgExtraction {
                                 }
                         };
                         let last_partition = resource_info.last_partition;
-                        let package_path_buf = runtime_folder_path.join(last_partition.clone());
+                        let package_path_buf = find_entry_ignoring_case(&runtime_folder_path, &last_partition);
                         let package_path = Path::new(&package_path_buf);
                         let aloc_or_prim_file_path_buf =
                             alocs_or_prims_output_folder_path_ref.join(hash.clone() + "." + &resource_type_ref);
