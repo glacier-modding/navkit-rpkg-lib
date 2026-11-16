@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.3.0...v1.4.0) (2026-11-16)
+
+### Features
+
+* Cross-OS paths ([#4](https://github.com/glacier-modding/navkit-rpkg-lib/issues/4)) by [@piepieonline](https://github.com/piepieonline) ([d2f4661](https://github.com/glacier-modding/navkit-rpkg-lib/commit/d2f46618f140cb10c34a09e525b2113b0ce77aa8))
+
 ## [1.3.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.2.0...v1.3.0) (2026-11-06)
 
 ### Features
