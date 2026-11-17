@@ -31,9 +31,15 @@ fn output_file_extension(resource_type: &str) -> Option<&'static str> {
         "NAVP" => Some(".NAVP"),
         "AIRG" => Some(".AIRG"),
         "CRMD" => Some(".CRMD"),
-        "GFXF" => Some(".swf"),
+        "GFXF" => Some(".GFX"),
         _ => None,
     }
+}
+
+fn extract_gfx_from_gfxf(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let gfxf = glacier_bin1::deserialize::<glacier_bin1::game::h3::SGFxMovieResource>(data)
+        .context("Failed to deserialize GFXF BIN1 resource")?;
+    Ok(gfxf.gfx_data)
 }
 
 impl RpkgExtraction {
@@ -145,8 +151,12 @@ impl RpkgExtraction {
                         let last_partition = resource_info.last_partition;
                         let package_path_buf = find_entry_ignoring_case(&runtime_folder_path, &last_partition);
                         let package_path = Path::new(&package_path_buf);
+                        let output_file_name = match output_file_extension(resource_type_ref) {
+                            Some(extension) => hash.clone() + extension,
+                            None => hash.clone() + "." + resource_type_ref,
+                        };
                         let aloc_or_prim_file_path_buf =
-                            alocs_or_prims_output_folder_path_ref.join(hash.clone() + "." + &resource_type_ref);
+                            alocs_or_prims_output_folder_path_ref.join(output_file_name);
                         let aloc_or_prim_file_path_buf = aloc_or_prim_file_path_buf.as_os_str().to_str().unwrap();
                         let aloc_or_prim_file_path = Path::new(aloc_or_prim_file_path_buf);
                         if aloc_or_prim_file_path.exists() {
@@ -305,6 +315,21 @@ impl RpkgExtraction {
                                 }
                             };
                             file_extension = ".TGA".to_string();
+                        } else if resource_type_ref == "GFXF" {
+                            resource_contents = match extract_gfx_from_gfxf(&resource_contents) {
+                                Ok(gfx_data) => gfx_data,
+                                Err(e) => {
+                                    let msg = std::ffi::CString::new(format!(
+                                        "Thread {}: Failed to extract GFX data from GFXF resource {}: {}",
+                                        chunk_i, hash, e
+                                    ))
+                                    .unwrap();
+                                    log_callback(msg.as_ptr());
+                                    chunk_failed = true;
+                                    continue 'resources;
+                                }
+                            };
+                            file_extension = ".GFX".to_string();
                         } else if let Some(extension) = output_file_extension(resource_type_ref) {
                             file_extension = extension.to_string();
                         } else {
@@ -596,11 +621,24 @@ impl RpkgExtraction {
 
 #[cfg(test)]
 mod tests {
-    use super::output_file_extension;
+    use super::{extract_gfx_from_gfxf, output_file_extension};
 
     #[test]
-    fn gfxf_resources_are_written_as_swf_files() {
-        assert_eq!(output_file_extension("GFXF"), Some(".swf"));
+    fn extracts_gfx_payload_from_gfxf() {
+        let payload = b"gfx-data";
+        let gfxf = glacier_bin1::serialize(&glacier_bin1::game::h3::SGFxMovieResource {
+            gfx_data: payload.to_vec(),
+            images_filename: Vec::new(),
+            images_data: Vec::new(),
+        })
+        .unwrap();
+
+        assert_eq!(extract_gfx_from_gfxf(&gfxf).unwrap(), payload);
+    }
+
+    #[test]
+    fn rejects_invalid_gfxf_bin1_data() {
+        assert!(extract_gfx_from_gfxf(&[]).is_err());
     }
 
     #[test]
@@ -610,6 +648,7 @@ mod tests {
         assert_eq!(output_file_extension("NAVP"), Some(".NAVP"));
         assert_eq!(output_file_extension("AIRG"), Some(".AIRG"));
         assert_eq!(output_file_extension("CRMD"), Some(".CRMD"));
+        assert_eq!(output_file_extension("GFXF"), Some(".GFX"));
     }
 
     #[test]
