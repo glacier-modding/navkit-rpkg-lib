@@ -18,6 +18,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Cache Windows Cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.config }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.config }}-
+
       - name: Build ${{ matrix.config }}
         shell: pwsh
         run: |
@@ -68,6 +79,20 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Prepare Cargo cache directory
+        run: mkdir -p "$RUNNER_TEMP/cargo-home"
+
+      - name: Cache Linux Cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-home/registry
+            ${{ runner.temp }}/cargo-home/git
+            target
+          key: linux-${{ matrix.arch }}-cargo-${{ matrix.config }}-${{ matrix.image }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            linux-${{ matrix.arch }}-cargo-${{ matrix.config }}-${{ matrix.image }}-
+
       - name: Set up QEMU
         if: matrix.arch == 'aarch64'
         uses: docker/setup-qemu-action@v3
@@ -76,12 +101,14 @@ jobs:
 
       - name: Build Linux ${{ matrix.config }}
         env:
+          CARGO_HOME: ${{ runner.temp }}/cargo-home
           BUILD_CONFIG: ${{ matrix.config }}
           MANYLINUX_IMAGE: ${{ matrix.image }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           docker run --rm --platform "$PLATFORM" \
             -e BUILD_CONFIG="$BUILD_CONFIG" \
+            -v "$CARGO_HOME:/root/.cargo" \
             -v "$GITHUB_WORKSPACE:/io" -w /io \
             "$MANYLINUX_IMAGE" /bin/bash -lc '
               set -euo pipefail
