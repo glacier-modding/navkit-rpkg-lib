@@ -1,3 +1,10 @@
+## [1.6.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.5.0...v1.6.0) (2026-11-17)
+
+### Features
+
+* Add cargo caching for build and release workflows ([f2b8f7d](https://github.com/glacier-modding/navkit-rpkg-lib/commit/f2b8f7db6002e832a9a97d82c2a59457053152c3))
+* Extract GFX from GFXF ([69d66df](https://github.com/glacier-modding/navkit-rpkg-lib/commit/69d66dfe687e06afbc842b83a985af2a18c5f38b))
+
 ## [1.5.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.4.0...v1.5.0) (2026-11-16)
 
 ### Features
