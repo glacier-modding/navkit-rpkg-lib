@@ -1,3 +1,11 @@
+# navkit-rpkg-lib v1.7.0
+
+## Other Changes
+- feat: Add gfxf save, add tests, fix linux cargo cache, update release notes template by @Danny Bierek
+- Update version in cargo.lock by @Danny Bierek
+
+Full Changelog: https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.6.0...v1.7.0
+
 ## [1.6.0](https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.5.0...v1.6.0) (2026-11-17)
 
 ### Features
