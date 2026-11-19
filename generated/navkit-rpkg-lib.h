@@ -83,6 +83,11 @@ void free_hashset_string(HashSet<String> *ptr);
 
 void free_partition_manager(PartitionManager *ptr);
 
+int pack_gfx_to_gfxf(const uint8_t *gfx_data,
+                     uintptr_t gfx_data_len,
+                     const char *output_file_path,
+                     void (*log_callback)(const char*));
+
 }  // extern "C"
 
 #endif  // NAVKIT_RPKG_LIB_H

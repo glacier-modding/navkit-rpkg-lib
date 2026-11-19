@@ -28,6 +28,7 @@ glacier-texture = "2.2.0"
 glacier-ini = "1.0.0"
 glacier-base = "0.2.1"
 glacier-bin1 = { git = "https://github.com/atampy25/glacier-bin1", default-features = false, features = ["h3", "GFXF"] }
+ecow = "0.3.1"
 
 [dependencies.glacier-commons]
 git = "https://github.com/atampy25/glacier-commons"

@@ -2221,6 +2221,7 @@ version = "1.6.0"
 dependencies = [
  "anyhow",
  "cbindgen",
+ "ecow",
  "glacier-base",
  "glacier-bin1",
  "glacier-commons",

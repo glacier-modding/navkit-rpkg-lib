@@ -126,6 +126,10 @@ jobs:
               fi
             '
 
+      - name: Fix Cargo and target permissions
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/cargo-home" target
+
       - name: Upload Linux ${{ matrix.config }} artifact
         uses: actions/upload-artifact@v4
         with:

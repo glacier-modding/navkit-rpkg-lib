@@ -424,3 +424,287 @@ pub extern "C" fn free_partition_manager(
         let _ = Box::from_raw(ptr);
     }
 }
+
+#[no_mangle]
+pub extern "C" fn pack_gfx_to_gfxf(
+    gfx_data: *const u8,
+    gfx_data_len: usize,
+    output_file_path: *const c_char,
+    log_callback: extern "C" fn(*const c_char),
+) -> std::ffi::c_int {
+    if gfx_data.is_null() || output_file_path.is_null() {
+        let msg = CString::new("Invalid input parameters: null pointer provided").unwrap();
+        log_callback(msg.as_ptr());
+        return -1;
+    }
+
+    let gfx_vec = unsafe { std::slice::from_raw_parts(gfx_data, gfx_data_len).to_vec() };
+    let output_path_str = unsafe {
+        CStr::from_ptr(output_file_path)
+            .to_string_lossy()
+            .into_owned()
+    };
+
+    let msg = CString::new(format!("Packing GFX data ({} bytes) into GFXF", gfx_data_len)).unwrap();
+    log_callback(msg.as_ptr());
+
+    let gfxf_resource = glacier_bin1::game::h3::SGFxMovieResource {
+        gfx_data: gfx_vec,
+        images_filename: Vec::new(),
+        images_data: Vec::new(),
+    };
+
+    let serialized = match glacier_bin1::serialize(&gfxf_resource) {
+        Ok(data) => data,
+        Err(e) => {
+            let msg = CString::new(format!("Failed to serialize GFXF: {}", e)).unwrap();
+            log_callback(msg.as_ptr());
+            return -1;
+        }
+    };
+
+    let msg = CString::new(format!("Writing GFXF file to: {}", output_path_str)).unwrap();
+    log_callback(msg.as_ptr());
+
+    if let Err(e) = std::fs::write(&output_path_str, serialized) {
+        let msg = CString::new(format!("Failed to write GFXF file: {}", e)).unwrap();
+        log_callback(msg.as_ptr());
+        return -1;
+    }
+
+    let msg = CString::new("Successfully packed GFX into GFXF and saved to file").unwrap();
+    log_callback(msg.as_ptr());
+    0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Mock log callback for testing
+    extern "C" fn test_log_callback(_msg: *const c_char) {
+        // No-op for tests
+    }
+
+    #[test]
+    fn test_pack_gfx_to_gfxf_success() {
+        let gfx_data = b"test-gfx-data";
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_output.gfxf");
+        let output_path_cstring = CString::new(output_path.to_str().unwrap()).unwrap();
+
+        let result = pack_gfx_to_gfxf(
+            gfx_data.as_ptr(),
+            gfx_data.len(),
+            output_path_cstring.as_ptr(),
+            test_log_callback,
+        );
+
+        assert_eq!(result, 0);
+        assert!(output_path.exists());
+
+        // Verify the file contains valid GFXF data
+        let file_contents = std::fs::read(&output_path).unwrap();
+        let gfxf: glacier_bin1::game::h3::SGFxMovieResource =
+            glacier_bin1::deserialize(&file_contents).unwrap();
+        assert_eq!(gfxf.gfx_data, gfx_data);
+
+        // Cleanup
+        std::fs::remove_file(output_path).ok();
+    }
+
+    #[test]
+    fn test_pack_gfx_to_gfxf_null_data() {
+        let output_path = CString::new("/tmp/test.gfxf").unwrap();
+
+        let result = pack_gfx_to_gfxf(
+            std::ptr::null(),
+            0,
+            output_path.as_ptr(),
+            test_log_callback,
+        );
+
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_pack_gfx_to_gfxf_null_path() {
+        let gfx_data = b"test-data";
+
+        let result = pack_gfx_to_gfxf(
+            gfx_data.as_ptr(),
+            gfx_data.len(),
+            std::ptr::null(),
+            test_log_callback,
+        );
+
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_create_string_list() {
+        let strings = vec!["hash1".to_string(), "hash2".to_string(), "hash3".to_string()];
+        let list_ptr = create_string_list(strings);
+
+        assert!(!list_ptr.is_null());
+
+        unsafe {
+            let list = &*list_ptr;
+            assert_eq!(list.length, 3);
+
+            let str1 = CStr::from_ptr(get_string_from_list(list_ptr, 0)).to_str().unwrap();
+            let str2 = CStr::from_ptr(get_string_from_list(list_ptr, 1)).to_str().unwrap();
+            let str3 = CStr::from_ptr(get_string_from_list(list_ptr, 2)).to_str().unwrap();
+
+            assert_eq!(str1, "hash1");
+            assert_eq!(str2, "hash2");
+            assert_eq!(str3, "hash3");
+        }
+
+        free_rust_string_list(list_ptr);
+    }
+
+    #[test]
+    fn test_create_string_list_empty() {
+        let strings = vec![];
+        let list_ptr = create_string_list(strings);
+
+        assert!(!list_ptr.is_null());
+
+        unsafe {
+            let list = &*list_ptr;
+            assert_eq!(list.length, 0);
+        }
+
+        free_rust_string_list(list_ptr);
+    }
+
+    #[test]
+    fn test_get_string_from_list_out_of_bounds() {
+        let strings = vec!["hash1".to_string()];
+        let list_ptr = create_string_list(strings);
+
+        let result = get_string_from_list(list_ptr, 10);
+        assert!(result.is_null());
+
+        free_rust_string_list(list_ptr);
+    }
+
+    #[test]
+    fn test_get_string_from_list_null() {
+        let result = get_string_from_list(std::ptr::null_mut(), 0);
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_free_rust_string_list_null() {
+        // Should not panic
+        free_rust_string_list(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn test_free_string_null() {
+        // Should not panic
+        free_string(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn test_free_hash_list_null() {
+        // Should not panic
+        free_hash_list(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn test_free_hashset_string_null() {
+        // Should not panic
+        free_hashset_string(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn test_free_partition_manager_null() {
+        // Should not panic
+        free_partition_manager(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn test_free_entities_json_null() {
+        // Should not panic
+        free_entities_json(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn test_option_string_to_c_char_some() {
+        let test_str = Some("test string".to_string());
+        let c_char_ptr = option_string_to_c_char(test_str);
+
+        assert!(!c_char_ptr.is_null());
+
+        unsafe {
+            let result = CStr::from_ptr(c_char_ptr).to_str().unwrap();
+            assert_eq!(result, "test string");
+            let _ = CString::from_raw(c_char_ptr);
+        }
+    }
+
+    #[test]
+    fn test_option_string_to_c_char_none() {
+        let c_char_ptr = option_string_to_c_char(None);
+        assert!(c_char_ptr.is_null());
+    }
+
+    #[test]
+    fn test_hash_list_get_version_null() {
+        let version = hash_list_get_version(std::ptr::null());
+        assert_eq!(version, 0);
+    }
+
+    #[test]
+    fn test_hash_list_get_all_hashes_null() {
+        let list_ptr = hash_list_get_all_hashes(std::ptr::null());
+        assert!(!list_ptr.is_null());
+
+        unsafe {
+            let list = &*list_ptr;
+            assert_eq!(list.length, 0);
+        }
+
+        free_rust_string_list(list_ptr);
+    }
+
+    #[test]
+    fn test_hash_list_get_path_by_hash_null_list() {
+        let hash = CString::new("test_hash").unwrap();
+        let result = hash_list_get_path_by_hash(std::ptr::null(), hash.as_ptr());
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_hash_list_get_path_by_hash_null_hash() {
+        // Create a minimal test - we can't easily construct HashList, so we test with null list too
+        // The function should handle null hash gracefully even with a valid list
+        let result = hash_list_get_path_by_hash(std::ptr::null(), std::ptr::null());
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_hash_list_get_hint_by_hash_null_list() {
+        let hash = CString::new("test_hash").unwrap();
+        let result = hash_list_get_hint_by_hash(std::ptr::null(), hash.as_ptr());
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_hash_list_get_resource_type_by_hash_null_list() {
+        let hash = CString::new("test_hash").unwrap();
+        let result = hash_list_get_resource_type_by_hash(std::ptr::null(), hash.as_ptr());
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_hash_list_get_resource_type_by_hash_null_hash() {
+        // Create a minimal test - we can't easily construct HashList, so we test with null list too
+        // The function should handle null hash gracefully even with a valid list
+        let result = hash_list_get_resource_type_by_hash(std::ptr::null(), std::ptr::null());
+        assert_eq!(result, 0);
+    }
+}

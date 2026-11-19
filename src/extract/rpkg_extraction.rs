@@ -621,7 +621,7 @@ impl RpkgExtraction {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_gfx_from_gfxf, output_file_extension};
+    use super::*;
 
     #[test]
     fn extracts_gfx_payload_from_gfxf() {
@@ -654,5 +654,127 @@ mod tests {
     #[test]
     fn unsupported_resource_types_have_no_output_extension() {
         assert_eq!(output_file_extension("XXXX"), None);
+    }
+
+    #[test]
+    fn test_output_file_extension_coverage() {
+        assert_eq!(output_file_extension("TEXT"), None);
+        assert_eq!(output_file_extension(""), None);
+        assert_eq!(output_file_extension("MATI"), None);
+    }
+
+    #[test]
+    fn test_extract_gfx_from_gfxf_with_images() {
+        let gfxf = glacier_bin1::serialize(&glacier_bin1::game::h3::SGFxMovieResource {
+            gfx_data: b"test-gfx".to_vec(),
+            images_filename: vec![ecow::EcoString::from("image1.png")],
+            images_data: vec![b"png-data".to_vec()],
+        })
+        .unwrap();
+
+        let result = extract_gfx_from_gfxf(&gfxf).unwrap();
+        assert_eq!(result, b"test-gfx");
+    }
+
+    #[test]
+    fn test_extract_gfx_from_gfxf_empty_data() {
+        let gfxf = glacier_bin1::serialize(&glacier_bin1::game::h3::SGFxMovieResource {
+            gfx_data: Vec::new(),
+            images_filename: Vec::new(),
+            images_data: Vec::new(),
+        })
+        .unwrap();
+
+        let result = extract_gfx_from_gfxf(&gfxf).unwrap();
+        assert_eq!(result, b"");
+    }
+
+    #[test]
+    fn test_get_needed_aloc_hashes_from_scene() {
+        let json_data = r#"{
+            "meshes": [
+                {"alocHash": "hash1", "primHash": "prim1", "entity": {"id": "1", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}},
+                {"alocHash": "hash2", "primHash": "prim2", "entity": {"id": "2", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}}
+            ],
+            "pfBoxes": [],
+            "pfSeedPoints": []
+        }"#;
+
+        let nav_json: EntitiesJson = serde_json::from_str(json_data).unwrap();
+        let hashes = RpkgExtraction::get_needed_aloc_or_prim_hashes_from_scene(&nav_json, "ALOC".to_string());
+
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.contains("hash1"));
+        assert!(hashes.contains("hash2"));
+    }
+
+    #[test]
+    fn test_get_needed_prim_hashes_from_scene() {
+        let json_data = r#"{
+            "meshes": [
+                {"alocHash": "aloc1", "primHash": "prim1", "entity": {"id": "1", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}},
+                {"alocHash": "aloc2", "primHash": "prim2", "entity": {"id": "2", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}}
+            ],
+            "pfBoxes": [],
+            "pfSeedPoints": []
+        }"#;
+
+        let nav_json: EntitiesJson = serde_json::from_str(json_data).unwrap();
+        let hashes = RpkgExtraction::get_needed_aloc_or_prim_hashes_from_scene(&nav_json, "PRIM".to_string());
+
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.contains("prim1"));
+        assert!(hashes.contains("prim2"));
+    }
+
+    #[test]
+    fn test_get_needed_hashes_empty_scene() {
+        let json_data = r#"{
+            "meshes": [],
+            "pfBoxes": [],
+            "pfSeedPoints": []
+        }"#;
+
+        let nav_json: EntitiesJson = serde_json::from_str(json_data).unwrap();
+        let hashes = RpkgExtraction::get_needed_aloc_or_prim_hashes_from_scene(&nav_json, "ALOC".to_string());
+
+        assert_eq!(hashes.len(), 0);
+    }
+
+    #[test]
+    fn test_get_needed_hashes_with_empty_strings() {
+        let json_data = r#"{
+            "meshes": [
+                {"alocHash": "", "primHash": "", "entity": {"id": "1", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}},
+                {"alocHash": "hash1", "primHash": "prim1", "entity": {"id": "2", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}}
+            ],
+            "pfBoxes": [],
+            "pfSeedPoints": []
+        }"#;
+
+        let nav_json: EntitiesJson = serde_json::from_str(json_data).unwrap();
+        let aloc_hashes = RpkgExtraction::get_needed_aloc_or_prim_hashes_from_scene(&nav_json, "ALOC".to_string());
+
+        assert_eq!(aloc_hashes.len(), 1);
+        assert!(aloc_hashes.contains("hash1"));
+    }
+
+    #[test]
+    fn test_get_needed_hashes_with_duplicates() {
+        let json_data = r#"{
+            "meshes": [
+                {"alocHash": "hash1", "primHash": "prim1", "entity": {"id": "1", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}},
+                {"alocHash": "hash1", "primHash": "prim1", "entity": {"id": "2", "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "scale": {"type": "uniform", "data": {"x": 1.0, "y": 1.0, "z": 1.0}}}}
+            ],
+            "pfBoxes": [],
+            "pfSeedPoints": []
+        }"#;
+
+        let nav_json: EntitiesJson = serde_json::from_str(json_data).unwrap();
+        let aloc_hashes = RpkgExtraction::get_needed_aloc_or_prim_hashes_from_scene(&nav_json, "ALOC".to_string());
+
+        // HashSet should deduplicate
+        assert_eq!(aloc_hashes.len(), 1);
+        assert!(aloc_hashes.contains("hash1"));
     }
 }

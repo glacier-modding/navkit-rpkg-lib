@@ -266,6 +266,69 @@ jobs:
             done
           done
 
+      - name: Create custom release notes generator
+        run: |
+          cat > custom-release-notes.js << 'EOF'
+          module.exports = {
+            generateNotes: async (pluginConfig, context) => {
+              const { commits, nextRelease, lastRelease } = context;
+              const version = nextRelease.version;
+              const previousTag = lastRelease ? lastRelease.gitTag : 'v0.0.0';
+
+              // Group commits by type
+              const enhancements = [];
+              const fixes = [];
+              const other = [];
+
+              commits.forEach(commit => {
+                const type = commit.type;
+                const subject = commit.subject || commit.header || commit.message.split('\n')[0];
+                if (!type && subject.startsWith('chore(release):')) return;
+                const pr = commit.references?.find(ref => ref.issue);
+                const prNumber = pr ? `#${pr.issue}` : '';
+                const author = commit.author ? `@${commit.author.login || commit.author.name}` : '';
+
+                let line = `- ${subject}`;
+                if (prNumber) line += ` (${prNumber})`;
+                if (author) line += ` by ${author}`;
+
+                if (type === 'feat' || type === 'perf') {
+                  enhancements.push(line);
+                } else if (type === 'fix') {
+                  fixes.push(line);
+                } else {
+                  other.push(line);
+                }
+              });
+
+              // Build release notes
+              let notes = `# navkit-rpkg-lib v${version}\n\n`;
+
+              if (enhancements.length > 0) {
+                notes += '## Enhancements\n';
+                enhancements.forEach(line => notes += line + '\n');
+                notes += '\n';
+              }
+
+              if (fixes.length > 0) {
+                notes += '## Fixes\n';
+                fixes.forEach(line => notes += line + '\n');
+                notes += '\n';
+              }
+
+              if (other.length > 0) {
+                notes += '## Other Changes\n';
+                other.forEach(line => notes += line + '\n');
+                notes += '\n';
+              }
+
+              notes += `Full Changelog: https://github.com/glacier-modding/navkit-rpkg-lib/compare/${previousTag}...v${version}`;
+
+              return notes;
+            }
+          };
+          EOF
+
       - name: Create .releaserc.json
         run: |
           cat > .releaserc.json << 'EOF'
@@ -292,26 +355,7 @@ jobs:
                   ]
                 }
               ],
-              [
-                "@semantic-release/release-notes-generator",
-                {
-                  "preset": "conventionalcommits",
-                  "presetConfig": {
-                    "types": [
-                      {"type": "feat", "section": "Features"},
-                      {"type": "fix", "section": "Bug Fixes"},
-                      {"type": "perf", "section": "Performance Improvements"},
-                      {"type": "revert", "section": "Reverts"},
-                      {"type": "docs", "section": "Documentation"},
-                      {"type": "style", "section": "Styles"},
-                      {"type": "refactor", "section": "Code Refactoring"},
-                      {"type": "test", "section": "Tests"},
-                      {"type": "build", "section": "Build System"},
-                      {"type": "ci", "section": "Continuous Integration"}
-                    ]
-                  }
-                }
-              ],
+              "./custom-release-notes.js",
               "@semantic-release/changelog",
               [
                 "@semantic-release/github",
@@ -331,7 +375,7 @@ jobs:
               [
                 "@semantic-release/git",
                 {
-                  "assets": ["CHANGELOG.md", "Cargo.toml"],
+                  "assets": ["CHANGELOG.md", "Cargo.toml", "Cargo.lock"],
                   "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
                 }
               ]
@@ -339,10 +383,14 @@ jobs:
           }
           EOF
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Update Cargo.toml version
         run: |
           cat > update-version.js << 'EOF'
           const fs = require('fs');
+          const { execSync } = require('child_process');
 
           module.exports = {
             prepare: async (pluginConfig, context) => {
@@ -358,6 +406,15 @@ jobs:
               fs.writeFileSync('Cargo.toml', updatedCargoToml);
 
               console.log(`Updated Cargo.toml to version ${version}`);
+
+              // Update Cargo.lock by running cargo update
+              try {
+                execSync('cargo update --workspace', { stdio: 'inherit' });
+                console.log('Updated Cargo.lock');
+              } catch (error) {
+                console.error('Failed to update Cargo.lock:', error.message);
+                throw error;
+              }
             }
           };
           EOF
