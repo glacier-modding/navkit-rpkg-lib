@@ -1,3 +1,10 @@
+# navkit-rpkg-lib v1.7.1
+
+## Fixes
+- Update workflows to include header file for debug and linux
+
+Full Changelog: https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.7.0...v1.7.1
+
 # navkit-rpkg-lib v1.7.0
 
 ## Other Changes
