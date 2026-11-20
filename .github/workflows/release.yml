@@ -69,6 +69,7 @@ jobs:
           Copy-Item target/debug/navkit_rpkg_lib.dll artifacts/windows-debug/
           Copy-Item target/debug/navkit_rpkg_lib.dll.lib artifacts/windows-debug/
           Copy-Item target/debug/navkit_rpkg_lib.pdb artifacts/windows-debug/
+          Copy-Item generated/navkit-rpkg-lib.h artifacts/windows-debug/
 
       - name: Prepare Windows artifacts (release)
         if: runner.os == 'Windows' && matrix.config == 'release'
@@ -90,6 +91,7 @@ jobs:
             target/debug/libnavkit_rpkg_lib.dylib \
             target/x86_64-apple-darwin/debug/libnavkit_rpkg_lib.dylib \
             -output artifacts/macos-debug/libnavkit_rpkg_lib.dylib
+          cp generated/navkit-rpkg-lib.h artifacts/macos-debug/
 
       - name: Prepare macOS artifacts (release)
         if: runner.os == 'macOS' && matrix.config == 'release'
@@ -183,13 +185,16 @@ jobs:
                 mkdir -p build
                 cp target/debug/libnavkit_rpkg_lib.so build/libnavkit_rpkg_lib.so
               fi
+              cp generated/navkit-rpkg-lib.h build/navkit-rpkg-lib.h
             '
 
       - name: Upload Linux ${{ matrix.config }} artifact
         uses: actions/upload-artifact@v4
         with:
           name: navkit-rpkg-lib-linux-${{ matrix.arch }}-${{ matrix.config }}
-          path: build/libnavkit_rpkg_lib.so
+          path: |
+            build/libnavkit_rpkg_lib.so
+            build/navkit-rpkg-lib.h
           if-no-files-found: error
 
   release:
@@ -261,7 +266,7 @@ jobs:
               artifact="artifacts/navkit-rpkg-lib-linux-${arch}-${config}"
               if [ -f "${artifact}/libnavkit_rpkg_lib.so" ]; then
                 tar czf "release-assets/navkit-rpkg-lib-linux-${arch}-${config}.tar.gz" \
-                  -C "$artifact" libnavkit_rpkg_lib.so
+                  -C "$artifact" libnavkit_rpkg_lib.so navkit-rpkg-lib.h
               fi
             done
           done
@@ -269,6 +274,15 @@ jobs:
       - name: Create custom release notes generator
         run: |
           cat > custom-release-notes.js << 'EOF'
+          // Parse a conventional commit header, matching the type case-insensitively
+          const parseHeader = message => {
+            const header = message.split('\n')[0].trim();
+            const match = header.match(/^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)$/);
+            if (!match) return { type: null, header };
+            const [, type, scope, description] = match;
+            return { type: type.toLowerCase(), scope, description, header };
+          };
+
           module.exports = {
             generateNotes: async (pluginConfig, context) => {
               const { commits, nextRelease, lastRelease } = context;
@@ -281,23 +295,16 @@ jobs:
               const other = [];
 
               commits.forEach(commit => {
-                const type = commit.type;
-                const subject = commit.subject || commit.header || commit.message.split('\n')[0];
-                if (!type && subject.startsWith('chore(release):')) return;
-                const pr = commit.references?.find(ref => ref.issue);
-                const prNumber = pr ? `#${pr.issue}` : '';
-                const author = commit.author ? `@${commit.author.login || commit.author.name}` : '';
-
-                let line = `- ${subject}`;
-                if (prNumber) line += ` (${prNumber})`;
-                if (author) line += ` by ${author}`;
+                const { type, scope, description, header } = parseHeader(commit.message);
+                if (type === 'chore' && scope?.toLowerCase() === 'release') return;
+                const title = scope ? `${scope}: ${description}` : description;
 
                 if (type === 'feat' || type === 'perf') {
-                  enhancements.push(line);
+                  enhancements.push(`- ${title}`);
                 } else if (type === 'fix') {
-                  fixes.push(line);
+                  fixes.push(`- ${title}`);
                 } else {
-                  other.push(line);
+                  other.push(`- ${header}`);
                 }
               });
 
@@ -341,17 +348,17 @@ jobs:
                   "preset": "conventionalcommits",
                   "releaseRules": [
                     {"breaking": true, "release": "major"},
-                    {"type": "feat", "release": "minor"},
-                    {"type": "fix", "release": "patch"},
-                    {"type": "perf", "release": "patch"},
-                    {"type": "revert", "release": "patch"},
-                    {"type": "docs", "release": "patch"},
-                    {"type": "style", "release": "patch"},
-                    {"type": "refactor", "release": "patch"},
-                    {"type": "test", "release": "patch"},
-                    {"type": "build", "release": "patch"},
-                    {"type": "ci", "release": "patch"},
-                    {"type": "chore", "release": "patch"}
+                    {"type": "[fF][eE][aA][tT]", "release": "minor"},
+                    {"type": "[fF][iI][xX]", "release": "patch"},
+                    {"type": "[pP][eE][rR][fF]", "release": "patch"},
+                    {"type": "[rR][eE][vV][eE][rR][tT]", "release": "patch"},
+                    {"type": "[dD][oO][cC][sS]", "release": "patch"},
+                    {"type": "[sS][tT][yY][lL][eE]", "release": "patch"},
+                    {"type": "[rR][eE][fF][aA][cC][tT][oO][rR]", "release": "patch"},
+                    {"type": "[tT][eE][sS][tT]", "release": "patch"},
+                    {"type": "[bB][uU][iI][lL][dD]", "release": "patch"},
+                    {"type": "[cC][iI]", "release": "patch"},
+                    {"type": "[cC][hH][oO][rR][eE]", "release": "patch"}
                   ]
                 }
               ],

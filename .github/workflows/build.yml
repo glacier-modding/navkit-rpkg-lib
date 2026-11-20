@@ -124,6 +124,7 @@ jobs:
                 mkdir -p build
                 cp target/debug/libnavkit_rpkg_lib.so build/libnavkit_rpkg_lib.so
               fi
+              cp generated/navkit-rpkg-lib.h build/navkit-rpkg-lib.h
             '
 
       - name: Fix Cargo and target permissions
@@ -134,5 +135,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: navkit-rpkg-lib-linux-${{ matrix.arch }}-${{ matrix.config }}
-          path: build/libnavkit_rpkg_lib.so
+          path: |
+            build/libnavkit_rpkg_lib.so
+            build/navkit-rpkg-lib.h
           if-no-files-found: error
