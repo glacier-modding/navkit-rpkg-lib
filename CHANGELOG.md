@@ -1,3 +1,10 @@
+# navkit-rpkg-lib v1.9.0
+
+## Enhancements
+- Switch to glacier_bin1 serializer for GFXF
+
+Full Changelog: https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.8.0...v1.9.0
+
 # navkit-rpkg-lib v1.8.0
 
 ## Enhancements
