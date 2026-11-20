@@ -113,23 +113,27 @@ jobs:
 
   build-linux:
     name: Build Linux ${{ matrix.arch }} (${{ matrix.config }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - arch: x86_64
+            runner: ubuntu-latest
             platform: linux/amd64
             image: quay.io/pypa/manylinux2014_x86_64
             config: debug
           - arch: x86_64
+            runner: ubuntu-latest
             platform: linux/amd64
             image: quay.io/pypa/manylinux2014_x86_64
             config: release
           - arch: aarch64
+            runner: ubuntu-24.04-arm
             platform: linux/arm64
             image: quay.io/pypa/manylinux2014_aarch64
             config: debug
           - arch: aarch64
+            runner: ubuntu-24.04-arm
             platform: linux/arm64
             image: quay.io/pypa/manylinux2014_aarch64
             config: release
@@ -153,12 +157,6 @@ jobs:
           key: linux-${{ matrix.arch }}-cargo-${{ matrix.config }}-${{ matrix.image }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             linux-${{ matrix.arch }}-cargo-${{ matrix.config }}-${{ matrix.image }}-
-
-      - name: Set up QEMU
-        if: matrix.arch == 'aarch64'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - name: Build Linux ${{ matrix.config }}
         env:
@@ -187,6 +185,10 @@ jobs:
               fi
               cp generated/navkit-rpkg-lib.h build/navkit-rpkg-lib.h
             '
+
+      - name: Fix Cargo and target permissions
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/cargo-home" target
 
       - name: Upload Linux ${{ matrix.config }} artifact
         uses: actions/upload-artifact@v4

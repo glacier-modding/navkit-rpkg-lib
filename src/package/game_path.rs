@@ -16,24 +16,25 @@ pub fn resolve_game_path(base: &Path, relative_path: &str) -> PathBuf {
 }
 
 pub fn find_entry_ignoring_case(directory: &Path, name: &str) -> PathBuf {
-    let exact_path = directory.join(name);
-    if exact_path.exists() {
-        return exact_path;
+    // Scan the directory instead of checking `exists()`, since on case-insensitive
+    // filesystems that succeeds for any casing and would hide the on-disk name.
+    let Ok(entries) = fs::read_dir(directory) else {
+        return directory.join(name);
+    };
+    let mut case_insensitive_match = None;
+    for entry_name in entries.flatten().map(|entry| entry.file_name()) {
+        if entry_name == name {
+            return directory.join(entry_name);
+        }
+        if case_insensitive_match.is_none()
+            && entry_name
+                .to_str()
+                .is_some_and(|entry_name| entry_name.eq_ignore_ascii_case(name))
+        {
+            case_insensitive_match = Some(entry_name);
+        }
     }
-    fs::read_dir(directory)
-        .ok()
-        .and_then(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.file_name())
-                .find(|entry_name| {
-                    entry_name
-                        .to_str()
-                        .is_some_and(|entry_name| entry_name.eq_ignore_ascii_case(name))
-                })
-        })
-        .map(|entry_name| directory.join(entry_name))
-        .unwrap_or(exact_path)
+    directory.join(case_insensitive_match.as_deref().unwrap_or(name.as_ref()))
 }
 
 #[cfg(test)]

@@ -425,6 +425,47 @@ pub extern "C" fn free_partition_manager(
     }
 }
 
+/// Serializes GFX data into a BIN1 GFXF resource matching the vanilla game layout.
+///
+/// glacier_bin1's serializer omits the u32 element count that the game stores
+/// immediately before the GFX bytes, so the layout is written by hand here.
+fn serialize_gfxf(gfx_data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    // data+0x00: gfx_data (pointer, length), data+0x10: images_filename and images_data (3 x u64 each)
+    const GFX_COUNT_OFFSET: usize = 0x40;
+    const GFX_DATA_OFFSET: usize = GFX_COUNT_OFFSET + 4;
+    const RELOCATIONS: [u32; 7] = [0x00, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38];
+
+    let gfx_len = u32::try_from(gfx_data.len())
+        .map_err(|_| anyhow::anyhow!("GFX data too large ({} bytes)", gfx_data.len()))?;
+    let data_size = u32::try_from(GFX_DATA_OFFSET + gfx_data.len())
+        .map_err(|_| anyhow::anyhow!("GFX data too large ({} bytes)", gfx_data.len()))?;
+
+    let mut out = Vec::with_capacity(0x10 + data_size as usize + 12 + RELOCATIONS.len() * 4);
+
+    // BIN1 header
+    out.extend_from_slice(b"BIN1");
+    out.extend_from_slice(&[0x00, 0x08, 0x01, 0x00]);
+    out.extend_from_slice(&data_size.to_be_bytes());
+    out.extend_from_slice(&[0u8; 4]);
+
+    // Data section
+    out.extend_from_slice(&(GFX_DATA_OFFSET as u64).to_le_bytes());
+    out.extend_from_slice(&(gfx_len as u64).to_le_bytes());
+    out.extend_from_slice(&[0xFF; 6 * 8]);
+    out.extend_from_slice(&gfx_len.to_le_bytes());
+    out.extend_from_slice(gfx_data);
+
+    // Relocation segment
+    out.extend_from_slice(&0x12EBA5EDu32.to_le_bytes());
+    out.extend_from_slice(&((4 + RELOCATIONS.len() * 4) as u32).to_le_bytes());
+    out.extend_from_slice(&(RELOCATIONS.len() as u32).to_le_bytes());
+    for offset in RELOCATIONS {
+        out.extend_from_slice(&offset.to_le_bytes());
+    }
+
+    Ok(out)
+}
+
 #[no_mangle]
 pub extern "C" fn pack_gfx_to_gfxf(
     gfx_data: *const u8,
@@ -448,13 +489,7 @@ pub extern "C" fn pack_gfx_to_gfxf(
     let msg = CString::new(format!("Packing GFX data ({} bytes) into GFXF", gfx_data_len)).unwrap();
     log_callback(msg.as_ptr());
 
-    let gfxf_resource = glacier_bin1::game::h3::SGFxMovieResource {
-        gfx_data: gfx_vec,
-        images_filename: Vec::new(),
-        images_data: Vec::new(),
-    };
-
-    let serialized = match glacier_bin1::serialize(&gfxf_resource) {
+    let serialized = match serialize_gfxf(&gfx_vec) {
         Ok(data) => data,
         Err(e) => {
             let msg = CString::new(format!("Failed to serialize GFXF: {}", e)).unwrap();
