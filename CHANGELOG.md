@@ -1,3 +1,10 @@
+# navkit-rpkg-lib v1.8.0
+
+## Enhancements
+- Add GFXF serializer, update linux aarch64 runner
+
+Full Changelog: https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.7.1...v1.8.0
+
 # navkit-rpkg-lib v1.7.1
 
 ## Fixes
