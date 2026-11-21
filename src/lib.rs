@@ -10,6 +10,7 @@ use crate::package::package_scan::PackageScan;
 use glacier_commons::hash_list::HashList;
 use glacier_commons::metadata::RuntimeID;
 use rpkg_rs::resource::partition_manager::PartitionManager;
+use rpkg_rs::resource::runtime_resource_id::RuntimeResourceID;
 use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -425,6 +426,61 @@ pub extern "C" fn free_partition_manager(
     }
 }
 
+/// Builds the JSON that `get_resource_info_json` returns for `rrid`, or `None` when no partition holds it.
+pub fn resource_info_json(
+    partition_manager: &PartitionManager,
+    rrid: &RuntimeResourceID,
+) -> Option<String> {
+    let info = PackageScan::get_resource_info(partition_manager, rrid)?;
+    let references: Vec<serde_json::Value> = info
+        .last_occurrence
+        .references()
+        .iter()
+        .map(|(reference, _)| {
+            let reference_type = PackageScan::get_resource_info(partition_manager, reference)
+                .map(|reference_info| reference_info.last_occurrence.data_type())
+                .unwrap_or_default();
+            serde_json::json!({ "hash": reference.to_hex_string(), "type": reference_type })
+        })
+        .collect();
+    Some(
+        serde_json::json!({
+            "hash": rrid.to_hex_string(),
+            "type": info.last_occurrence.data_type(),
+            "partition": info.last_partition,
+            "references": references,
+        })
+        .to_string(),
+    )
+}
+
+/// Returns a JSON object describing the latest version of a resource:
+/// `{"hash": "00...", "type": "TEMP", "partition": "chunk0patch3.rpkg", "references": [{"hash": "00...", "type": "TBLU"}]}`.
+/// A reference that no partition holds has an empty type. Returns null when the hash is invalid or not found.
+/// Free the result with `free_string`.
+#[no_mangle]
+pub extern "C" fn get_resource_info_json(
+    resource_hash: *const c_char,
+    partition_manager: *const PartitionManager,
+    log_callback: extern "C" fn(*const c_char),
+) -> *mut c_char {
+    if resource_hash.is_null() || partition_manager.is_null() {
+        return std::ptr::null_mut();
+    }
+    let resource_hash_str = unsafe { CStr::from_ptr(resource_hash).to_string_lossy().into_owned() };
+    let rrid = match RuntimeResourceID::from_hex_string(resource_hash_str.as_str()) {
+        Ok(rrid) => rrid,
+        Err(_) => {
+            let msg =
+                CString::new(format!("Invalid resource hash: {}", resource_hash_str)).unwrap();
+            log_callback(msg.as_ptr());
+            return std::ptr::null_mut();
+        }
+    };
+    let partition_manager_ref = unsafe { &*partition_manager };
+    option_string_to_c_char(resource_info_json(partition_manager_ref, &rrid))
+}
+
 #[no_mangle]
 pub extern "C" fn pack_gfx_to_gfxf(
     gfx_data: *const u8,
@@ -594,6 +650,13 @@ mod tests {
     fn test_get_string_from_list_null() {
         let result = get_string_from_list(std::ptr::null_mut(), 0);
         assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_get_resource_info_json_null_inputs() {
+        let hash = CString::new("00F1BA373CABEEE1").unwrap();
+        assert!(get_resource_info_json(std::ptr::null(), std::ptr::null(), test_log_callback).is_null());
+        assert!(get_resource_info_json(hash.as_ptr(), std::ptr::null(), test_log_callback).is_null());
     }
 
     #[test]
