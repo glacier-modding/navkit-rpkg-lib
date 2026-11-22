@@ -1,3 +1,10 @@
+# navkit-rpkg-lib v1.10.0
+
+## Enhancements
+- Add generate-demo-mod
+
+Full Changelog: https://github.com/glacier-modding/navkit-rpkg-lib/compare/v1.9.0...v1.10.0
+
 # navkit-rpkg-lib v1.9.0
 
 ## Enhancements
