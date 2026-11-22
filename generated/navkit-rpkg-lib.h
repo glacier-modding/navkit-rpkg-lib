@@ -83,6 +83,14 @@ void free_hashset_string(HashSet<String> *ptr);
 
 void free_partition_manager(PartitionManager *ptr);
 
+/// Returns a JSON object describing the latest version of a resource:
+/// `{"hash": "00...", "type": "TEMP", "partition": "chunk0patch3.rpkg", "references": [{"hash": "00...", "type": "TBLU"}]}`.
+/// A reference that no partition holds has an empty type. Returns null when the hash is invalid or not found.
+/// Free the result with `free_string`.
+char *get_resource_info_json(const char *resource_hash,
+                             const PartitionManager *partition_manager,
+                             void (*log_callback)(const char*));
+
 int pack_gfx_to_gfxf(const uint8_t *gfx_data,
                      uintptr_t gfx_data_len,
                      const char *output_file_path,
